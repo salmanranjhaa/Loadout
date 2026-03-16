@@ -566,7 +566,7 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] max-w-lg mx-auto relative overflow-hidden">
+    <div className="flex flex-col h-[calc(100svh-4rem)] max-w-lg mx-auto relative overflow-hidden">
       {/* ─── History panel ────────────────────────────────────────────────────── */}
       {showHistory && (
         <div className="absolute inset-0 z-20 bg-slate-900 flex flex-col">
@@ -607,28 +607,28 @@ export default function ChatPage() {
         </div>
       )}
 
-      <div className="px-4 pt-4 pb-2 flex items-start justify-between">
-        <div>
-          <h1 className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent flex items-center gap-2">
-            <Sparkles size={20} className="text-purple-400" />
+      <div className="px-4 pt-3 pb-2 flex items-center justify-between gap-2 flex-shrink-0">
+        <div className="min-w-0">
+          <h1 className="text-lg font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent flex items-center gap-1.5">
+            <Sparkles size={16} className="text-purple-400 flex-shrink-0" />
             AI Assistant
           </h1>
-          <p className="text-[10px] text-slate-500 mt-0.5">Powered by Vertex AI (Gemini 2.5) + RAG from your history</p>
+          <p className="text-[9px] text-slate-500 truncate">Vertex AI (Gemini 2.5) + RAG</p>
         </div>
-        <div className="flex items-center gap-1.5 mt-1">
+        <div className="flex items-center gap-1 flex-shrink-0">
           <button
             onClick={openHistory}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-slate-500 bg-slate-800 rounded-lg hover:text-slate-300 hover:bg-slate-700 transition-colors"
+            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] text-slate-500 bg-slate-800 rounded-lg hover:text-slate-300 transition-colors"
           >
-            <History size={11} />
+            <History size={10} />
             History
           </button>
           <button
             onClick={newChat}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-slate-500 bg-slate-800 rounded-lg hover:text-slate-300 hover:bg-slate-700 transition-colors"
+            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] text-slate-500 bg-slate-800 rounded-lg hover:text-slate-300 transition-colors"
           >
-            <RotateCcw size={11} />
-            New Chat
+            <RotateCcw size={10} />
+            New
           </button>
         </div>
       </div>

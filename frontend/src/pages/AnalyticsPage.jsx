@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Scale, Target, Activity, Flame, Utensils, Wallet, TrendingDown, TrendingUp } from "lucide-react";
+import { Scale, Target, Activity, Flame, Utensils, Wallet, TrendingDown, TrendingUp, ArrowDown } from "lucide-react";
 import { Line, Bar } from "react-chartjs-2";
 import {
   Chart as ChartJS,
