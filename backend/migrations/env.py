@@ -19,6 +19,11 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+# Override alembic.ini URL with DATABASE_URL_SYNC env var if set
+_db_url = os.environ.get("DATABASE_URL_SYNC")
+if _db_url:
+    config.set_main_option("sqlalchemy.url", _db_url)
+
 target_metadata = Base.metadata
 
 
