@@ -30,11 +30,12 @@ async function request(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
 
   if (!response.ok) {
-    if (response.status === 401) {
+    const error = await response.json().catch(() => ({ detail: "Request failed" }));
+    if (response.status === 401 && getToken()) {
+      // Only force-logout if we had a token (session expired), not on login attempts
       clearToken();
       window.location.reload();
     }
-    const error = await response.json().catch(() => ({ detail: "Request failed" }));
     throw new Error(error.detail || `HTTP ${response.status}`);
   }
 

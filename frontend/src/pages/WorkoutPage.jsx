@@ -73,53 +73,55 @@ const CARDIO_EXTRA_FIELDS = {
 
 const MUSCLE_GROUPS = ["All", "Chest", "Back", "Shoulders", "Biceps", "Triceps", "Legs", "Core", "Full Body"];
 
+// exType: "weighted" = reps+kg, "bodyweight" = reps only, "timed" = hold duration in secs
 const EXERCISE_LIBRARY = [
   // Chest
-  { id: "bench_press", name: "Bench Press", muscle: "Chest", emoji: "🏋️" },
-  { id: "incline_press", name: "Incline Press", muscle: "Chest", emoji: "🏋️" },
-  { id: "push_up", name: "Push Up", muscle: "Chest", emoji: "💪" },
-  { id: "cable_fly", name: "Cable Fly", muscle: "Chest", emoji: "🤸" },
-  { id: "dips", name: "Chest Dips", muscle: "Chest", emoji: "💪" },
+  { id: "bench_press", name: "Bench Press", muscle: "Chest", emoji: "🏋️", exType: "weighted" },
+  { id: "incline_press", name: "Incline Press", muscle: "Chest", emoji: "🏋️", exType: "weighted" },
+  { id: "push_up", name: "Push Up", muscle: "Chest", emoji: "💪", exType: "bodyweight" },
+  { id: "cable_fly", name: "Cable Fly", muscle: "Chest", emoji: "🤸", exType: "weighted" },
+  { id: "dips", name: "Chest Dips", muscle: "Chest", emoji: "💪", exType: "bodyweight" },
   // Back
-  { id: "pull_up", name: "Pull Up", muscle: "Back", emoji: "🏋️" },
-  { id: "bent_row", name: "Bent Over Row", muscle: "Back", emoji: "🏋️" },
-  { id: "lat_pulldown", name: "Lat Pulldown", muscle: "Back", emoji: "🏋️" },
-  { id: "cable_row", name: "Seated Cable Row", muscle: "Back", emoji: "🏋️" },
-  { id: "deadlift", name: "Deadlift", muscle: "Back", emoji: "🏋️" },
+  { id: "pull_up", name: "Pull Up", muscle: "Back", emoji: "🏋️", exType: "bodyweight" },
+  { id: "bent_row", name: "Bent Over Row", muscle: "Back", emoji: "🏋️", exType: "weighted" },
+  { id: "lat_pulldown", name: "Lat Pulldown", muscle: "Back", emoji: "🏋️", exType: "weighted" },
+  { id: "cable_row", name: "Seated Cable Row", muscle: "Back", emoji: "🏋️", exType: "weighted" },
+  { id: "deadlift", name: "Deadlift", muscle: "Back", emoji: "🏋️", exType: "weighted" },
   // Shoulders
-  { id: "ohp", name: "Overhead Press", muscle: "Shoulders", emoji: "🏋️" },
-  { id: "lateral_raise", name: "Lateral Raise", muscle: "Shoulders", emoji: "💪" },
-  { id: "front_raise", name: "Front Raise", muscle: "Shoulders", emoji: "💪" },
-  { id: "face_pull", name: "Face Pull", muscle: "Shoulders", emoji: "🤸" },
+  { id: "ohp", name: "Overhead Press", muscle: "Shoulders", emoji: "🏋️", exType: "weighted" },
+  { id: "lateral_raise", name: "Lateral Raise", muscle: "Shoulders", emoji: "💪", exType: "weighted" },
+  { id: "front_raise", name: "Front Raise", muscle: "Shoulders", emoji: "💪", exType: "weighted" },
+  { id: "face_pull", name: "Face Pull", muscle: "Shoulders", emoji: "🤸", exType: "weighted" },
   // Biceps
-  { id: "barbell_curl", name: "Barbell Curl", muscle: "Biceps", emoji: "💪" },
-  { id: "hammer_curl", name: "Hammer Curl", muscle: "Biceps", emoji: "💪" },
-  { id: "incline_curl", name: "Incline DB Curl", muscle: "Biceps", emoji: "💪" },
-  { id: "preacher_curl", name: "Preacher Curl", muscle: "Biceps", emoji: "💪" },
+  { id: "barbell_curl", name: "Barbell Curl", muscle: "Biceps", emoji: "💪", exType: "weighted" },
+  { id: "hammer_curl", name: "Hammer Curl", muscle: "Biceps", emoji: "💪", exType: "weighted" },
+  { id: "incline_curl", name: "Incline DB Curl", muscle: "Biceps", emoji: "💪", exType: "weighted" },
+  { id: "preacher_curl", name: "Preacher Curl", muscle: "Biceps", emoji: "💪", exType: "weighted" },
   // Triceps
-  { id: "tricep_pushdown", name: "Tricep Pushdown", muscle: "Triceps", emoji: "💪" },
-  { id: "skull_crusher", name: "Skull Crusher", muscle: "Triceps", emoji: "🏋️" },
-  { id: "overhead_ext", name: "Overhead Extension", muscle: "Triceps", emoji: "💪" },
-  { id: "close_grip", name: "Close Grip Bench", muscle: "Triceps", emoji: "🏋️" },
+  { id: "tricep_pushdown", name: "Tricep Pushdown", muscle: "Triceps", emoji: "💪", exType: "weighted" },
+  { id: "skull_crusher", name: "Skull Crusher", muscle: "Triceps", emoji: "🏋️", exType: "weighted" },
+  { id: "overhead_ext", name: "Overhead Extension", muscle: "Triceps", emoji: "💪", exType: "weighted" },
+  { id: "close_grip", name: "Close Grip Bench", muscle: "Triceps", emoji: "🏋️", exType: "weighted" },
   // Legs
-  { id: "squat", name: "Back Squat", muscle: "Legs", emoji: "🏋️" },
-  { id: "rdl", name: "Romanian Deadlift", muscle: "Legs", emoji: "🏋️" },
-  { id: "leg_press", name: "Leg Press", muscle: "Legs", emoji: "🏋️" },
-  { id: "lunges", name: "Lunges", muscle: "Legs", emoji: "🤸" },
-  { id: "leg_curl", name: "Leg Curl", muscle: "Legs", emoji: "🏋️" },
-  { id: "calf_raise", name: "Calf Raise", muscle: "Legs", emoji: "🦵" },
-  { id: "leg_ext", name: "Leg Extension", muscle: "Legs", emoji: "🏋️" },
+  { id: "squat", name: "Back Squat", muscle: "Legs", emoji: "🏋️", exType: "weighted" },
+  { id: "rdl", name: "Romanian Deadlift", muscle: "Legs", emoji: "🏋️", exType: "weighted" },
+  { id: "leg_press", name: "Leg Press", muscle: "Legs", emoji: "🏋️", exType: "weighted" },
+  { id: "lunges", name: "Lunges", muscle: "Legs", emoji: "🤸", exType: "bodyweight" },
+  { id: "leg_curl", name: "Leg Curl", muscle: "Legs", emoji: "🏋️", exType: "weighted" },
+  { id: "calf_raise", name: "Calf Raise", muscle: "Legs", emoji: "🦵", exType: "weighted" },
+  { id: "leg_ext", name: "Leg Extension", muscle: "Legs", emoji: "🏋️", exType: "weighted" },
   // Core
-  { id: "plank", name: "Plank", muscle: "Core", emoji: "🤸" },
-  { id: "crunch", name: "Crunch", muscle: "Core", emoji: "🤸" },
-  { id: "leg_raise", name: "Hanging Leg Raise", muscle: "Core", emoji: "🤸" },
-  { id: "russian_twist", name: "Russian Twist", muscle: "Core", emoji: "🔄" },
-  { id: "ab_wheel", name: "Ab Wheel", muscle: "Core", emoji: "⚙️" },
+  { id: "plank", name: "Plank", muscle: "Core", emoji: "🤸", exType: "timed" },
+  { id: "side_plank", name: "Side Plank", muscle: "Core", emoji: "🤸", exType: "timed" },
+  { id: "crunch", name: "Crunch", muscle: "Core", emoji: "🤸", exType: "bodyweight" },
+  { id: "leg_raise", name: "Hanging Leg Raise", muscle: "Core", emoji: "🤸", exType: "bodyweight" },
+  { id: "russian_twist", name: "Russian Twist", muscle: "Core", emoji: "🔄", exType: "bodyweight" },
+  { id: "ab_wheel", name: "Ab Wheel", muscle: "Core", emoji: "⚙️", exType: "bodyweight" },
   // Full Body
-  { id: "power_clean", name: "Power Clean", muscle: "Full Body", emoji: "🏋️" },
-  { id: "thruster", name: "Thruster", muscle: "Full Body", emoji: "🏋️" },
-  { id: "burpee", name: "Burpee", muscle: "Full Body", emoji: "💥" },
-  { id: "kettlebell_swing", name: "KB Swing", muscle: "Full Body", emoji: "🔔" },
+  { id: "power_clean", name: "Power Clean", muscle: "Full Body", emoji: "🏋️", exType: "weighted" },
+  { id: "thruster", name: "Thruster", muscle: "Full Body", emoji: "🏋️", exType: "weighted" },
+  { id: "burpee", name: "Burpee", muscle: "Full Body", emoji: "💥", exType: "bodyweight" },
+  { id: "kettlebell_swing", name: "KB Swing", muscle: "Full Body", emoji: "🔔", exType: "weighted" },
 ];
 
 // ─── Shared history item ─────────────────────────────────────────────────────
@@ -286,7 +288,12 @@ function StrengthTab({ onSaved }) {
 
   function addExercise(ex) {
     if (session.find(s => s.exercise.id === ex.id)) return;
-    setSession(prev => [...prev, { exercise: ex, sets: [{ reps: 10, weight: 0 }] }]);
+    const initialSet = ex.exType === "timed"
+      ? { duration_secs: 30 }
+      : ex.exType === "bodyweight"
+        ? { reps: 10 }
+        : { reps: 10, weight: 0 };
+    setSession(prev => [...prev, { exercise: ex, sets: [initialSet] }]);
     setShowLibrary(false);
   }
 
@@ -295,11 +302,16 @@ function StrengthTab({ onSaved }) {
   }
 
   function addSet(exId) {
-    setSession(prev => prev.map(s =>
-      s.exercise.id === exId
-        ? { ...s, sets: [...s.sets, { reps: s.sets.at(-1)?.reps || 10, weight: s.sets.at(-1)?.weight || 0 }] }
-        : s
-    ));
+    setSession(prev => prev.map(s => {
+      if (s.exercise.id !== exId) return s;
+      const last = s.sets.at(-1) || {};
+      const newSet = s.exercise.exType === "timed"
+        ? { duration_secs: last.duration_secs || 30 }
+        : s.exercise.exType === "bodyweight"
+          ? { reps: last.reps || 10 }
+          : { reps: last.reps || 10, weight: last.weight || 0 };
+      return { ...s, sets: [...s.sets, newSet] };
+    }));
   }
 
   function removeSet(exId, setIdx) {
@@ -320,7 +332,9 @@ function StrengthTab({ onSaved }) {
 
   const totalSets = session.reduce((acc, s) => acc + s.sets.length, 0);
   const totalVolume = session.reduce((acc, s) =>
-    acc + s.sets.reduce((a, set) => a + (set.reps * set.weight), 0), 0
+    s.exercise.exType === "weighted"
+      ? acc + s.sets.reduce((a, set) => a + (set.reps * (set.weight || 0)), 0)
+      : acc, 0
   );
 
   async function handleSave() {
@@ -415,40 +429,83 @@ function StrengthTab({ onSaved }) {
 
               {/* Sets */}
               <div className="px-3 py-2 space-y-1.5">
-                {/* Column headers */}
-                <div className="grid grid-cols-[32px_1fr_1fr_28px] gap-2 px-1">
-                  <span className="text-[9px] text-slate-600 text-center">SET</span>
-                  <span className="text-[9px] text-slate-600 text-center">REPS</span>
-                  <span className="text-[9px] text-slate-600 text-center">KG</span>
-                  <span />
-                </div>
+                {/* Column headers — adapt to exercise type */}
+                {exercise.exType === "timed" ? (
+                  <div className="grid grid-cols-[32px_1fr_28px] gap-2 px-1">
+                    <span className="text-[9px] text-slate-600 text-center">SET</span>
+                    <span className="text-[9px] text-slate-600 text-center">SECS</span>
+                    <span />
+                  </div>
+                ) : exercise.exType === "bodyweight" ? (
+                  <div className="grid grid-cols-[32px_1fr_28px] gap-2 px-1">
+                    <span className="text-[9px] text-slate-600 text-center">SET</span>
+                    <span className="text-[9px] text-slate-600 text-center">REPS</span>
+                    <span />
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-[32px_1fr_1fr_28px] gap-2 px-1">
+                    <span className="text-[9px] text-slate-600 text-center">SET</span>
+                    <span className="text-[9px] text-slate-600 text-center">REPS</span>
+                    <span className="text-[9px] text-slate-600 text-center">KG</span>
+                    <span />
+                  </div>
+                )}
 
                 {sets.map((set, si) => (
-                  <div key={si} className="grid grid-cols-[32px_1fr_1fr_28px] gap-2 items-center">
-                    <span className="text-[11px] text-slate-500 text-center font-mono">{si + 1}</span>
-                    <input
-                      type="number"
-                      value={set.reps}
-                      onChange={e => updateSet(exercise.id, si, "reps", e.target.value)}
-                      className="bg-slate-800 rounded-lg px-2 py-1.5 text-sm text-center text-slate-200 border border-slate-700 focus:border-emerald-500 focus:outline-none w-full"
-                      min={1}
-                    />
-                    <input
-                      type="number"
-                      value={set.weight || ""}
-                      onChange={e => updateSet(exercise.id, si, "weight", e.target.value)}
-                      placeholder="BW"
-                      className="bg-slate-800 rounded-lg px-2 py-1.5 text-sm text-center text-slate-200 border border-slate-700 focus:border-emerald-500 focus:outline-none w-full placeholder-slate-600"
-                      min={0}
-                      step={2.5}
-                    />
-                    <button
-                      onClick={() => sets.length > 1 ? removeSet(exercise.id, si) : null}
-                      className="p-1 text-slate-700 hover:text-red-400 transition-colors mx-auto"
-                    >
-                      <Minus size={11} />
-                    </button>
-                  </div>
+                  exercise.exType === "timed" ? (
+                    <div key={si} className="grid grid-cols-[32px_1fr_28px] gap-2 items-center">
+                      <span className="text-[11px] text-slate-500 text-center font-mono">{si + 1}</span>
+                      <input
+                        type="number"
+                        value={set.duration_secs || 30}
+                        onChange={e => updateSet(exercise.id, si, "duration_secs", e.target.value)}
+                        className="bg-slate-800 rounded-lg px-2 py-1.5 text-sm text-center text-slate-200 border border-slate-700 focus:border-emerald-500 focus:outline-none w-full"
+                        min={5} step={5}
+                      />
+                      <button onClick={() => sets.length > 1 ? removeSet(exercise.id, si) : null}
+                        className="p-1 text-slate-700 hover:text-red-400 transition-colors mx-auto">
+                        <Minus size={11} />
+                      </button>
+                    </div>
+                  ) : exercise.exType === "bodyweight" ? (
+                    <div key={si} className="grid grid-cols-[32px_1fr_28px] gap-2 items-center">
+                      <span className="text-[11px] text-slate-500 text-center font-mono">{si + 1}</span>
+                      <input
+                        type="number"
+                        value={set.reps || 10}
+                        onChange={e => updateSet(exercise.id, si, "reps", e.target.value)}
+                        className="bg-slate-800 rounded-lg px-2 py-1.5 text-sm text-center text-slate-200 border border-slate-700 focus:border-emerald-500 focus:outline-none w-full"
+                        min={1}
+                      />
+                      <button onClick={() => sets.length > 1 ? removeSet(exercise.id, si) : null}
+                        className="p-1 text-slate-700 hover:text-red-400 transition-colors mx-auto">
+                        <Minus size={11} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div key={si} className="grid grid-cols-[32px_1fr_1fr_28px] gap-2 items-center">
+                      <span className="text-[11px] text-slate-500 text-center font-mono">{si + 1}</span>
+                      <input
+                        type="number"
+                        value={set.reps}
+                        onChange={e => updateSet(exercise.id, si, "reps", e.target.value)}
+                        className="bg-slate-800 rounded-lg px-2 py-1.5 text-sm text-center text-slate-200 border border-slate-700 focus:border-emerald-500 focus:outline-none w-full"
+                        min={1}
+                      />
+                      <input
+                        type="number"
+                        value={set.weight || ""}
+                        onChange={e => updateSet(exercise.id, si, "weight", e.target.value)}
+                        placeholder="BW"
+                        className="bg-slate-800 rounded-lg px-2 py-1.5 text-sm text-center text-slate-200 border border-slate-700 focus:border-emerald-500 focus:outline-none w-full placeholder-slate-600"
+                        min={0} step={2.5}
+                      />
+                      <button onClick={() => sets.length > 1 ? removeSet(exercise.id, si) : null}
+                        className="p-1 text-slate-700 hover:text-red-400 transition-colors mx-auto">
+                        <Minus size={11} />
+                      </button>
+                    </div>
+                  )
                 ))}
 
                 <button

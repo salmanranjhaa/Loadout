@@ -2,7 +2,6 @@ import json
 import logging
 import numpy as np
 from typing import Optional
-from sentence_transformers import SentenceTransformer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.config import get_settings
@@ -13,25 +12,20 @@ from app.models.schedule import ScheduleModification
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-# I load the embedding model once at module level — it stays in memory
-_embedding_model: Optional[SentenceTransformer] = None
 
-
-def get_embedding_model() -> SentenceTransformer:
-    """I lazy-load the sentence-transformers model on first use."""
-    global _embedding_model
-    if _embedding_model is None:
-        logger.info(f"Loading embedding model: {settings.EMBEDDING_MODEL}")
-        _embedding_model = SentenceTransformer(settings.EMBEDDING_MODEL)
-        logger.info("Embedding model loaded.")
-    return _embedding_model
-
-
-def get_embedding(content: str) -> list[float]:
-    """I generate a local embedding using sentence-transformers."""
-    model = get_embedding_model()
-    embedding = model.encode(content, normalize_embeddings=True)
-    return embedding.tolist()
+async def get_embedding(content: str) -> Optional[list[float]]:
+    """I generate an embedding using Vertex AI text-embedding-004."""
+    try:
+        from app.services.vertex_ai import get_client
+        client = get_client()
+        response = await client.aio.models.embed_content(
+            model="text-embedding-004",
+            contents=content,
+        )
+        return list(response.embeddings[0].values)
+    except Exception as e:
+        logger.error(f"Vertex AI embedding failed: {e}")
+        return None
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -51,14 +45,11 @@ async def retrieve_relevant_context(
     top_k: int = 5,
 ) -> str:
     """
-    I retrieve the most relevant context from the user's history for RAG.
-    I search across meal logs, workout logs, and schedule modifications
-    using local sentence-transformer embeddings and cosine similarity.
+    I retrieve the most relevant context from the user's history using Vertex AI embeddings.
+    Searches across meal logs, workout logs, and schedule modifications.
     """
-    try:
-        query_embedding = get_embedding(query)
-    except Exception as e:
-        logger.error(f"Failed to generate query embedding: {e}")
+    query_embedding = await get_embedding(query)
+    if not query_embedding:
         return ""
 
     documents = []
@@ -115,7 +106,7 @@ async def retrieve_relevant_context(
         )
         for mod in mod_result.scalars():
             documents.append({
-                "type": "modification",
+                "type": "schedule_change",
                 "content": (
                     f"Schedule change ({mod.modification_type}): {mod.reason or 'no reason given'}. "
                     f"Changed: {json.dumps(mod.old_value)} -> {json.dumps(mod.new_value)}"
@@ -147,42 +138,45 @@ async def retrieve_relevant_context(
 
 
 async def embed_and_store_meal(meal: MealLog, db: AsyncSession) -> None:
-    """I generate and store a local embedding for a new meal log entry."""
+    """I generate and store a Vertex AI embedding for a meal log entry."""
     try:
         content = (
             f"Ate {meal.name} for {meal.meal_type}. "
             f"Calories: {meal.calories}, Protein: {meal.protein_g}g. "
             f"{meal.notes or ''}"
         )
-        meal.embedding = get_embedding(content)
-        await db.commit()
+        meal.embedding = await get_embedding(content)
+        if meal.embedding:
+            await db.commit()
     except Exception as e:
         logger.error(f"Failed to embed meal log {meal.id}: {e}")
 
 
 async def embed_and_store_workout(workout: WorkoutLog, db: AsyncSession) -> None:
-    """I generate and store a local embedding for a new workout log entry."""
+    """I generate and store a Vertex AI embedding for a workout log entry."""
     try:
         content = (
             f"{workout.workout_type} workout, {workout.duration_minutes} minutes, "
             f"intensity: {workout.intensity}. Energy: {workout.energy_level}/5. "
             f"{workout.notes or ''}"
         )
-        workout.embedding = get_embedding(content)
-        await db.commit()
+        workout.embedding = await get_embedding(content)
+        if workout.embedding:
+            await db.commit()
     except Exception as e:
         logger.error(f"Failed to embed workout log {workout.id}: {e}")
 
 
 async def embed_and_store_modification(mod: ScheduleModification, db: AsyncSession) -> None:
-    """I generate and store a local embedding for a schedule modification."""
+    """I generate and store a Vertex AI embedding for a schedule modification."""
     try:
         content = (
             f"User modified schedule: {mod.modification_type}. "
             f"Reason: {mod.reason or 'not specified'}. "
             f"Old: {json.dumps(mod.old_value)}, New: {json.dumps(mod.new_value)}"
         )
-        mod.embedding = get_embedding(content)
-        await db.commit()
+        mod.embedding = await get_embedding(content)
+        if mod.embedding:
+            await db.commit()
     except Exception as e:
         logger.error(f"Failed to embed schedule modification {mod.id}: {e}")

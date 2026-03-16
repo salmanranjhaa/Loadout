@@ -34,7 +34,7 @@ class User(Base):
     
     # I store supplement schedule as JSON
     supplements = Column(JSON, default=lambda: {
-        "morning": ["ACV shot", "magnesium", "multivitamin"],
+        "morning": ["apple cider vinegar", "magnesium", "multivitamin"],
         "pre_workout": ["L-carnitine", "black coffee"],
         "post_workout": ["whey protein 30g"],
         "before_bed": ["magnesium"],

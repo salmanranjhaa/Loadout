@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, RefreshCw, Flame, Beef, Check, Edit2, X, Trash2, ChevronDown, ChevronUp, Save } from "lucide-react";
+import { Plus, RefreshCw, Flame, Beef, Check, Edit2, X, Trash2, ChevronDown, ChevronUp, Save, Pill } from "lucide-react";
 import { mealsAPI, aiAPI, userAPI } from "../utils/api";
 
 const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"];
@@ -443,41 +443,60 @@ export default function MealsPage() {
         </div>
       )}
 
-      {/* Supplement schedule (loaded from profile) */}
-      <div className="mt-6 bg-bg-card rounded-xl p-4">
-        <h3 className="text-xs font-semibold text-slate-400 mb-3">Supplement Schedule</h3>
-        <div className="space-y-2 text-xs">
-          {supplements ? (
-            <>
-              {supplements.morning?.length > 0 && <SupRow label="Morning" items={supplements.morning} />}
-              {supplements.pre_workout?.length > 0 && <SupRow label="Pre workout" items={supplements.pre_workout} />}
-              {supplements.post_workout?.length > 0 && <SupRow label="Post workout" items={supplements.post_workout} />}
-              {supplements.before_bed?.length > 0 && <SupRow label="Before bed" items={supplements.before_bed} />}
-            </>
-          ) : (
-            [
-              { time: "Morning", items: "ACV shot, Magnesium, Multivitamin" },
-              { time: "Pre workout", items: "L-carnitine, Black coffee" },
-              { time: "Post workout", items: "Whey protein shake (30g)" },
-              { time: "Before bed", items: "Magnesium" },
-            ].map((s, i) => (
-              <div key={i} className="flex gap-3">
-                <span className="w-24 text-slate-600 flex-shrink-0">{s.time}</span>
-                <span className="text-slate-300">{s.items}</span>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
+      {/* Supplement schedule — collapsible */}
+      <SupplementSection supplements={supplements} />
     </div>
   );
 }
 
 function SupRow({ label, items }) {
   return (
-    <div className="flex gap-3">
-      <span className="w-24 text-slate-600 flex-shrink-0 capitalize">{label}</span>
-      <span className="text-slate-300">{Array.isArray(items) ? items.join(", ") : items}</span>
+    <div className="flex gap-3 py-1.5 border-b border-slate-800/60 last:border-0">
+      <span className="w-24 text-slate-500 flex-shrink-0 capitalize text-[11px]">{label}</span>
+      <span className="text-slate-300 text-[11px]">{Array.isArray(items) ? items.join(", ") : items}</span>
+    </div>
+  );
+}
+
+function SupplementSection({ supplements }) {
+  const [open, setOpen] = useState(false);
+
+  const fallback = [
+    { time: "Morning", items: "Apple cider vinegar, Magnesium, Multivitamin" },
+    { time: "Pre workout", items: "L-carnitine, Black coffee" },
+    { time: "Post workout", items: "Whey protein shake (30g)" },
+    { time: "Before bed", items: "Magnesium" },
+  ];
+
+  return (
+    <div className="mt-4 bg-bg-card rounded-xl border border-slate-800 overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 text-left"
+      >
+        <div className="flex items-center gap-2">
+          <Pill size={13} className="text-purple-400" />
+          <span className="text-xs font-semibold text-slate-400">Supplement Schedule</span>
+        </div>
+        {open ? <ChevronUp size={13} className="text-slate-600" /> : <ChevronDown size={13} className="text-slate-600" />}
+      </button>
+
+      {open && (
+        <div className="px-4 pb-3 border-t border-slate-800">
+          <div className="space-y-0 mt-2 text-xs">
+            {supplements ? (
+              <>
+                {supplements.morning?.length > 0 && <SupRow label="Morning" items={supplements.morning} />}
+                {supplements.pre_workout?.length > 0 && <SupRow label="Pre workout" items={supplements.pre_workout} />}
+                {supplements.post_workout?.length > 0 && <SupRow label="Post workout" items={supplements.post_workout} />}
+                {supplements.before_bed?.length > 0 && <SupRow label="Before bed" items={supplements.before_bed} />}
+              </>
+            ) : (
+              fallback.map((s, i) => <SupRow key={i} label={s.time} items={s.items} />)
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

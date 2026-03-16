@@ -1,5 +1,5 @@
 import logging
-from datetime import date
+from datetime import date, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -10,6 +10,8 @@ from app.core.auth import get_current_user
 from app.models.user import User
 from app.models.meal import MealTemplate, MealLog
 from app.models.inventory import InventoryItem
+from app.models.schedule import ScheduleEvent
+from app.models.analytics import WorkoutLog
 from app.services.vertex_ai import chat_with_ai, calculate_macros_from_description
 from app.services.rag import retrieve_relevant_context
 from app.core.limiter import limiter
@@ -33,12 +35,12 @@ class MealSwapRequest(BaseModel):
 @router.post("/chat")
 @limiter.limit("20/minute")
 async def ai_chat(
-    request: Request,  # required by slowapi rate limiter
+    request: Request,
     chat: ChatMessage,
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(get_current_user),
 ):
-    """I handle the main AI chatbot interaction with RAG context."""
+    """I handle the main AI chatbot interaction with full context injection."""
     user_result = await db.execute(select(User).where(User.id == user["sub"]))
     user_profile = user_result.scalar_one_or_none()
     if not user_profile:
@@ -56,6 +58,7 @@ async def ai_chat(
         "routine_preferences": user_profile.routine_preferences,
     }
 
+    # I retrieve vector-similarity context from historical meal/workout/schedule data
     rag_context = await retrieve_relevant_context(
         query=chat.message,
         user_id=user["sub"],
@@ -63,6 +66,7 @@ async def ai_chat(
         top_k=5,
     )
 
+    # I inject today's meals so the AI knows what's been eaten
     today_meals = await db.execute(
         select(MealLog).where(
             MealLog.user_id == user["sub"],
@@ -81,7 +85,43 @@ async def ai_chat(
             f"\n\nTODAY'S MEALS SO FAR ({total_cal} kcal, {total_pro}g protein):\n{meals_lines}"
         )
 
-    # I inject inventory so the AI knows what ingredients are available at home
+    # I inject today's schedule so the AI knows the day's plan
+    today_weekday = (date.today().weekday())  # 0=Monday, 6=Sunday
+    schedule_result = await db.execute(
+        select(ScheduleEvent)
+        .where(ScheduleEvent.user_id == user["sub"])
+        .where(ScheduleEvent.day_of_week == today_weekday)
+        .order_by(ScheduleEvent.start_time)
+    )
+    schedule_events = schedule_result.scalars().all()
+    if schedule_events:
+        sched_lines = "\n".join([
+            f"  {(e.start_time or '')[:5]}-{(e.end_time or '')[:5]}: {e.title} ({e.event_type})"
+            + (f" @ {e.location}" if e.location else "")
+            for e in schedule_events
+        ])
+        rag_context += f"\n\nTODAY'S SCHEDULE:\n{sched_lines}"
+
+    # I inject recent workouts so the AI can assess load, recovery, and strain
+    week_ago = (date.today() - timedelta(days=7)).isoformat()
+    recent_workouts_result = await db.execute(
+        select(WorkoutLog)
+        .where(WorkoutLog.user_id == user["sub"])
+        .where(WorkoutLog.date >= week_ago)
+        .order_by(WorkoutLog.date.desc())
+        .limit(10)
+    )
+    recent_workouts = recent_workouts_result.scalars().all()
+    if recent_workouts:
+        workout_lines = "\n".join([
+            f"  {w.date}: {w.workout_type} {w.duration_minutes}min, {w.intensity} intensity"
+            + (f", ~{w.calories_burned} kcal burned" if w.calories_burned else "")
+            + (f", energy {w.energy_level}/5" if w.energy_level else "")
+            for w in recent_workouts
+        ])
+        rag_context += f"\n\nRECENT WORKOUTS (last 7 days):\n{workout_lines}"
+
+    # I inject the pantry so the AI can suggest meals using available ingredients
     inventory_result = await db.execute(
         select(InventoryItem).where(InventoryItem.user_id == user["sub"])
         .order_by(InventoryItem.category, InventoryItem.name)
@@ -115,7 +155,7 @@ async def ai_chat(
 @router.post("/swap-meal")
 @limiter.limit("10/minute")
 async def swap_meal(
-    request: Request,  # required by slowapi rate limiter
+    request: Request,
     body: MealSwapRequest,
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(get_current_user),
@@ -169,7 +209,7 @@ Respond with a JSON array of meal suggestions using the save_meal_template forma
 @router.post("/estimate-macros")
 @limiter.limit("30/minute")
 async def estimate_macros(
-    request: Request,  # required by slowapi rate limiter
+    request: Request,
     description: str,
     _user: dict = Depends(get_current_user),
 ):

@@ -1,27 +1,26 @@
 import { useState, useEffect } from "react";
-import { Scale, Target, ArrowDown, ArrowUp, Activity, Flame, Utensils, Wallet, TrendingDown, TrendingUp } from "lucide-react";
+import { Scale, Target, Activity, Flame, Utensils, Wallet, TrendingDown, TrendingUp } from "lucide-react";
+import { Line, Bar } from "react-chartjs-2";
+import {
+  Chart as ChartJS,
+  CategoryScale, LinearScale, PointElement, LineElement,
+  BarElement, Tooltip, Filler,
+} from "chart.js";
 import { analyticsAPI, workoutAPI, budgetAPI } from "../utils/api";
 
-const TABS = ["Overview", "Weight", "Nutrition"];
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Filler);
 
-// Simple sparkline bar chart used in multiple sections
-function MiniBarChart({ data, color = "bg-blue-500", height = "h-16" }) {
-  const vals = data.map(d => d.value);
-  const max = Math.max(...vals, 1);
-  return (
-    <div className={`flex items-end gap-0.5 ${height}`}>
-      {data.map((d, i) => (
-        <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
-          <div
-            className={`w-full rounded-t ${color} transition-all opacity-80`}
-            style={{ height: `${Math.max((d.value / max) * 80, d.value > 0 ? 5 : 0)}%` }}
-          />
-          <span className="text-[7px] text-slate-600">{d.label}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
+const TABS = ["Overview", "Weight", "Fitness", "Nutrition"];
+
+const CHART_OPTS = {
+  responsive: true,
+  plugins: { legend: { display: false }, tooltip: { mode: "index", intersect: false } },
+  scales: {
+    x: { grid: { color: "rgba(148,163,184,0.08)" }, ticks: { color: "#64748b", font: { size: 9 } } },
+    y: { grid: { color: "rgba(148,163,184,0.08)" }, ticks: { color: "#64748b", font: { size: 9 } } },
+  },
+};
+
 
 function StatCard({ icon: Icon, value, label, color, sub }) {
   return (
@@ -38,6 +37,7 @@ export default function AnalyticsPage() {
   const [tab, setTab] = useState("Overview");
   const [dashboard, setDashboard] = useState(null);
   const [weights, setWeights] = useState([]);
+  const [workouts, setWorkouts] = useState([]);
   const [weightInput, setWeightInput] = useState("");
   const [loggingWeight, setLoggingWeight] = useState(false);
   const [weightSaved, setWeightSaved] = useState(false);
@@ -47,14 +47,16 @@ export default function AnalyticsPage() {
 
   async function loadAll() {
     try {
-      const [dash, wData, bSum] = await Promise.all([
+      const [dash, wData, bSum, wkData] = await Promise.all([
         analyticsAPI.getDashboard(),
         analyticsAPI.getWeights(30),
         budgetAPI.getSummary(),
+        workoutAPI.getAll(30),
       ]);
       setDashboard(dash);
       setWeights(wData.weights || []);
       setBudgetSummary(bSum);
+      setWorkouts(wkData.workouts || []);
     } catch {/* silently fail */}
   }
 
@@ -77,10 +79,36 @@ export default function AnalyticsPage() {
   const weekChange = dashboard?.weight.week_change;
   const toTarget = current ? (current - 81).toFixed(1) : null;
 
-  const weightChartData = weights.slice(-14).map(w => ({
-    value: w.weight_kg,
-    label: w.date.slice(5),
+  const weightSlice = weights.slice(-21);
+  const weightLineData = {
+    labels: weightSlice.map(w => w.date.slice(5)),
+    datasets: [{
+      data: weightSlice.map(w => w.weight_kg),
+      borderColor: "#3b82f6",
+      backgroundColor: "rgba(59,130,246,0.08)",
+      fill: true, tension: 0.4,
+      pointRadius: 3, pointBackgroundColor: "#3b82f6",
+    }],
+  };
+
+  // Workouts per day (last 14 days)
+  const last14 = Array.from({ length: 14 }, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() - (13 - i));
+    return d.toISOString().slice(0, 10);
+  });
+  const workoutsByDay = last14.map(day => ({
+    label: day.slice(5),
+    value: workouts.filter(w => w.date === day).length,
   }));
+  const workoutBarData = {
+    labels: workoutsByDay.map(d => d.label),
+    datasets: [{
+      data: workoutsByDay.map(d => d.value),
+      backgroundColor: "rgba(52,211,153,0.5)",
+      borderColor: "#34d399",
+      borderWidth: 1, borderRadius: 3,
+    }],
+  };
 
   const calorieTarget = 2100;
   const proteinTarget = 190;
@@ -253,10 +281,10 @@ export default function AnalyticsPage() {
             <StatCard icon={Target} value={toTarget != null ? `${toTarget}kg` : null} label="to goal (81)" color="text-amber-400" />
           </div>
 
-          {weightChartData.length > 0 && (
+          {weightSlice.length > 1 && (
             <div className="bg-bg-card rounded-xl p-4">
-              <h3 className="text-xs font-semibold text-slate-400 mb-3">Last 14 Days</h3>
-              <MiniBarChart data={weightChartData} color="bg-blue-500" height="h-24" />
+              <h3 className="text-xs font-semibold text-slate-400 mb-3">Last {weightSlice.length} Days</h3>
+              <Line data={weightLineData} options={{ ...CHART_OPTS, scales: { ...CHART_OPTS.scales, y: { ...CHART_OPTS.scales.y, min: Math.floor(Math.min(...weightSlice.map(w => w.weight_kg)) - 1), max: Math.ceil(Math.max(...weightSlice.map(w => w.weight_kg)) + 1) } } }} />
             </div>
           )}
 
@@ -290,6 +318,57 @@ export default function AnalyticsPage() {
                     <span className="text-xs text-slate-500">{w.date}</span>
                     <span className="text-sm font-semibold text-slate-200">{w.weight_kg} kg</span>
                   </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── FITNESS TAB ── */}
+      {tab === "Fitness" && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-2">
+            <StatCard icon={Activity} value={dashboard?.fitness_this_week.workouts ?? "—"} label="sessions" color="text-emerald-400" sub="this week" />
+            <StatCard icon={Flame} value={dashboard?.fitness_this_week.total_calories_burned || "—"} label="kcal burned" color="text-amber-400" sub="this week" />
+            <StatCard icon={Target} value={dashboard?.fitness_this_week.total_minutes ?? "—"} label="minutes" color="text-blue-400" sub="this week" />
+          </div>
+
+          <div className="bg-bg-card rounded-xl p-4">
+            <h3 className="text-xs font-semibold text-slate-400 mb-3">Sessions — Last 14 Days</h3>
+            <Bar data={workoutBarData} options={{ ...CHART_OPTS, scales: { ...CHART_OPTS.scales, y: { ...CHART_OPTS.scales.y, ticks: { ...CHART_OPTS.scales.y.ticks, stepSize: 1 }, min: 0 } } }} />
+          </div>
+
+          {workouts.length > 0 && (
+            <div className="bg-bg-card rounded-xl p-4">
+              <h3 className="text-xs font-semibold text-slate-400 mb-3">Recent Sessions</h3>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {[...workouts].reverse().slice(0, 15).map((w, i) => (
+                  <div key={i} className="flex items-center justify-between py-1.5 border-b border-slate-800 last:border-0">
+                    <div>
+                      <span className="text-xs font-medium text-slate-200 capitalize">{w.type}</span>
+                      <span className={`ml-2 text-[9px] px-1.5 py-0.5 rounded-full capitalize ${
+                        w.intensity === "high" ? "bg-red-900/40 text-red-400" :
+                        w.intensity === "moderate" ? "bg-amber-900/40 text-amber-400" :
+                        "bg-emerald-900/40 text-emerald-400"
+                      }`}>{w.intensity}</span>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-slate-400">{w.duration}min</div>
+                      <div className="text-[10px] text-slate-600">{w.date}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {dashboard?.fitness_this_week.types?.length > 0 && (
+            <div className="bg-bg-card rounded-xl p-4">
+              <h3 className="text-xs font-semibold text-slate-400 mb-2">Activity Mix This Week</h3>
+              <div className="flex flex-wrap gap-1.5">
+                {dashboard.fitness_this_week.types.map(t => (
+                  <span key={t} className="text-xs bg-emerald-900/30 text-emerald-300 px-3 py-1 rounded-full capitalize">{t}</span>
                 ))}
               </div>
             </div>
