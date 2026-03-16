@@ -8,8 +8,8 @@ version: "3.9"
 services:
   backend:
     build:
-      context: ..
-      dockerfile: backend/Dockerfile
+      context: ../backend
+      dockerfile: Dockerfile
     env_file:
       - .env.prod
     volumes:
