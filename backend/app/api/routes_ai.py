@@ -47,6 +47,7 @@ async def ai_chat(
         raise HTTPException(status_code=404, detail="User not found")
 
     profile_dict = {
+        "username": user_profile.username,
         "current_weight_kg": user_profile.current_weight_kg,
         "target_weight_kg": user_profile.target_weight_kg,
         "height_cm": user_profile.height_cm,
@@ -103,7 +104,7 @@ async def ai_chat(
         rag_context += f"\n\nTODAY'S SCHEDULE:\n{sched_lines}"
 
     # I inject recent workouts so the AI can assess load, recovery, and strain
-    week_ago = (date.today() - timedelta(days=7)).isoformat()
+    week_ago = date.today() - timedelta(days=7)
     recent_workouts_result = await db.execute(
         select(WorkoutLog)
         .where(WorkoutLog.user_id == user["sub"])

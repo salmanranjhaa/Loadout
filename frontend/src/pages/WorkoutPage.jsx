@@ -1060,10 +1060,9 @@ function TemplatesTab({ onStartWorkout }) {
 
   function addExFromLibrary(ex) {
     if (editForm.exercises.find(e => e.name === ex.name)) return;
-    setEditForm(p => ({
-      ...p,
-      exercises: [...p.exercises, { name: ex.name, sets: 3, reps: "10", weight_suggestion_kg: "" }],
-    }));
+    const entry = { name: ex.name, sets: 3, reps: ex.exType === "timed" ? "30" : "10" };
+    if (ex.exType === "weighted") entry.weight_suggestion_kg = "";
+    setEditForm(p => ({ ...p, exercises: [...p.exercises, entry] }));
   }
 
   async function saveEdit() {
@@ -1170,7 +1169,10 @@ function TemplatesTab({ onStartWorkout }) {
           {/* Exercises */}
           <div className="space-y-2">
             <p className="text-[10px] text-slate-500 uppercase tracking-wider">Exercises</p>
-            {newT.exercises.map((ex, i) => (
+            {newT.exercises.map((ex, i) => {
+              const exLib = EXERCISE_LIBRARY.find(lib => lib.name === ex.name);
+              const exType = exLib?.exType || "weighted";
+              return (
               <div key={i} className="bg-slate-800/60 rounded-lg p-2 space-y-1.5">
                 <div className="flex gap-1.5">
                   <select value={ex.name} onChange={e => updateNewExercise(i, "name", e.target.value)}
@@ -1196,19 +1198,22 @@ function TemplatesTab({ onStartWorkout }) {
                       placeholder="3" min={1} className="w-full bg-slate-700 rounded px-2 py-0.5 text-xs text-slate-200 focus:outline-none" />
                   </div>
                   <div className="flex-1">
-                    <label className="text-[9px] text-slate-500">Reps</label>
+                    <label className="text-[9px] text-slate-500">{exType === "timed" ? "Secs" : "Reps"}</label>
                     <input value={ex.reps} onChange={e => updateNewExercise(i, "reps", e.target.value)}
-                      placeholder="10" className="w-full bg-slate-700 rounded px-2 py-0.5 text-xs text-slate-200 focus:outline-none" />
+                      placeholder={exType === "timed" ? "30" : "10"} className="w-full bg-slate-700 rounded px-2 py-0.5 text-xs text-slate-200 focus:outline-none" />
                   </div>
-                  <div className="flex-1">
-                    <label className="text-[9px] text-slate-500">kg</label>
-                    <input type="number" value={ex.weight_suggestion_kg}
-                      onChange={e => updateNewExercise(i, "weight_suggestion_kg", e.target.value)}
-                      placeholder="BW" step={2.5} min={0} className="w-full bg-slate-700 rounded px-2 py-0.5 text-xs text-slate-200 focus:outline-none" />
-                  </div>
+                  {exType === "weighted" && (
+                    <div className="flex-1">
+                      <label className="text-[9px] text-slate-500">kg</label>
+                      <input type="number" value={ex.weight_suggestion_kg}
+                        onChange={e => updateNewExercise(i, "weight_suggestion_kg", e.target.value)}
+                        placeholder="BW" step={2.5} min={0} className="w-full bg-slate-700 rounded px-2 py-0.5 text-xs text-slate-200 focus:outline-none" />
+                    </div>
+                  )}
                 </div>
               </div>
-            ))}
+              );
+            })}
             <button onClick={addNewExercise}
               className="w-full py-1.5 text-[10px] text-slate-500 border border-dashed border-slate-700 rounded-lg hover:border-teal-700 hover:text-teal-400 flex items-center justify-center gap-1">
               <Plus size={10} /> Add exercise
@@ -1269,7 +1274,10 @@ function TemplatesTab({ onStartWorkout }) {
               {/* Exercise list */}
               <div className="space-y-1.5">
                 <p className="text-[10px] text-slate-500 uppercase tracking-wider">Exercises</p>
-                {editForm.exercises.map((ex, i) => (
+                {editForm.exercises.map((ex, i) => {
+                  const exLib = EXERCISE_LIBRARY.find(lib => lib.name === ex.name);
+                  const exType = exLib?.exType || (ex.weight_suggestion_kg != null ? "weighted" : "weighted");
+                  return (
                   <div key={i} className="bg-slate-800/60 rounded-lg p-2 space-y-1">
                     <div className="flex gap-1.5">
                       <select value={ex.name} onChange={e => setEditForm(p => ({ ...p, exercises: p.exercises.map((x, j) => j === i ? { ...x, name: e.target.value } : x) }))}
@@ -1295,18 +1303,21 @@ function TemplatesTab({ onStartWorkout }) {
                           placeholder="3" min={1} className="w-full bg-slate-700 rounded px-1.5 py-0.5 text-[11px] text-slate-200 focus:outline-none" />
                       </div>
                       <div className="flex-1">
-                        <label className="text-[9px] text-slate-500">Reps</label>
+                        <label className="text-[9px] text-slate-500">{exType === "timed" ? "Secs" : "Reps"}</label>
                         <input value={ex.reps ?? ""} onChange={e => setEditForm(p => ({ ...p, exercises: p.exercises.map((x, j) => j === i ? { ...x, reps: e.target.value } : x) }))}
-                          placeholder="10" className="w-full bg-slate-700 rounded px-1.5 py-0.5 text-[11px] text-slate-200 focus:outline-none" />
+                          placeholder={exType === "timed" ? "30" : "10"} className="w-full bg-slate-700 rounded px-1.5 py-0.5 text-[11px] text-slate-200 focus:outline-none" />
                       </div>
-                      <div className="flex-1">
-                        <label className="text-[9px] text-slate-500">kg</label>
-                        <input type="number" value={ex.weight_suggestion_kg ?? ""} onChange={e => setEditForm(p => ({ ...p, exercises: p.exercises.map((x, j) => j === i ? { ...x, weight_suggestion_kg: e.target.value } : x) }))}
-                          placeholder="BW" step={2.5} min={0} className="w-full bg-slate-700 rounded px-1.5 py-0.5 text-[11px] text-slate-200 focus:outline-none" />
-                      </div>
+                      {exType === "weighted" && (
+                        <div className="flex-1">
+                          <label className="text-[9px] text-slate-500">kg</label>
+                          <input type="number" value={ex.weight_suggestion_kg ?? ""} onChange={e => setEditForm(p => ({ ...p, exercises: p.exercises.map((x, j) => j === i ? { ...x, weight_suggestion_kg: e.target.value } : x) }))}
+                            placeholder="BW" step={2.5} min={0} className="w-full bg-slate-700 rounded px-1.5 py-0.5 text-[11px] text-slate-200 focus:outline-none" />
+                        </div>
+                      )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
 
                 {/* Add from library / blank */}
                 <div className="flex gap-1.5">

@@ -23,7 +23,7 @@ def get_client() -> genai.Client:
     return _client
 
 
-SYSTEM_PROMPT = """You are a nutrition and routine assistant for Sal, a 28-year-old male in St. Gallen, Switzerland.
+SYSTEM_PROMPT = """You are a nutrition and routine assistant for {username}, a 28-year-old male in St. Gallen, Switzerland.
 
 PROFILE:
 - Current weight: {weight}kg, Target: {target}kg, Height: {height}cm, Age: {age}
@@ -129,6 +129,7 @@ async def chat_with_ai(
     client = get_client()
 
     system_instruction = SYSTEM_PROMPT.format(
+        username=user_profile.get("username", "there"),
         weight=user_profile.get("current_weight_kg", 98.6),
         target=user_profile.get("target_weight_kg", 81.0),
         height=user_profile.get("height_cm", 175),
