@@ -1,47 +1,19 @@
 version: "3.9"
 
 # Production compose for deployed-stuff VM
-# Runs on port 8001 (port 8000 is already taken by erp-rag)
-# No frontend container — static files served by existing nginx separately
-# MongoDB excluded — not used by LifePlan (MONGODB_URI is empty)
+# Uses the VM's existing PostgreSQL 17 (no DB container needed)
+# Uses host networking so the container can reach 127.0.0.1:5432
+# Backend exposed on port 8001 (port 8000 is taken by erp-rag)
 
 services:
-  db:
-    image: pgvector/pgvector:pg15
-    environment:
-      POSTGRES_DB: lifeplan_db
-      POSTGRES_USER: lifeplan_user
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    ports:
-      - "127.0.0.1:5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U lifeplan_user -d lifeplan_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   backend:
     build:
       context: ..
       dockerfile: backend/Dockerfile
     env_file:
       - .env.prod
-    environment:
-      DATABASE_URL: "postgresql+asyncpg://lifeplan_user:${DB_PASSWORD}@db:5432/lifeplan_db"
-      DATABASE_URL_SYNC: "postgresql+psycopg2://lifeplan_user:${DB_PASSWORD}@db:5432/lifeplan_db"
-      MONGODB_URI: ""
-      GOOGLE_APPLICATION_CREDENTIALS: "/app/adc.json"
     volumes:
-      - ${ADC_PATH}:/app/adc.json:ro
-    ports:
-      - "8001:8000"
-    depends_on:
-      db:
-        condition: service_healthy
+      - /home/salma/.config/gcloud/application_default_credentials.json:/app/adc.json:ro
+    network_mode: host
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001
     restart: unless-stopped
-
-volumes:
-  pgdata:
