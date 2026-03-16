@@ -1,0 +1,13 @@
+{
+  "appId": "com.antigravity.lifeplan",
+  "appName": "LifePlan",
+  "webDir": "dist",
+  "android": {
+    "allowMixedContent": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 0
+    }
+  }
+}

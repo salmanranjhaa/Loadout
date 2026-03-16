@@ -1,0 +1,73 @@
+version: "3.9"
+
+services:
+  # I use pgvector-enabled PostgreSQL so vector similarity search works natively
+  db:
+    image: pgvector/pgvector:pg15
+    environment:
+      POSTGRES_DB: lifeplan_db
+      POSTGRES_USER: lifeplan_user
+      POSTGRES_PASSWORD: changeme
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lifeplan_user -d lifeplan_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # I run MongoDB locally for chat history and RAG document store
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodata:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # I run the FastAPI backend
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    env_file:
+      - ../backend/.env
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://lifeplan_user:changeme@db:5432/lifeplan_db"
+      DATABASE_URL_SYNC: "postgresql+psycopg2://lifeplan_user:changeme@db:5432/lifeplan_db"
+      MONGODB_URI: "mongodb://mongo:27017"
+      MONGODB_DB_NAME: "lifeplan"
+      GCP_PROJECT_ID: "${GCP_PROJECT_ID}"
+      GCP_REGION: "europe-west6"
+      VERTEX_AI_MODEL: "gemini-2.5-flash"
+      # I mount ADC credentials for Vertex AI access in Docker
+      GOOGLE_APPLICATION_CREDENTIALS: "/app/adc.json"
+    volumes:
+      - ${ADC_PATH}:/app/adc.json:ro
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+
+  # I build the React frontend and serve it via nginx
+  frontend:
+    build:
+      context: ..
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+  mongodata:

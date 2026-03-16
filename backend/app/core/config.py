@@ -1,0 +1,52 @@
+from pydantic_settings import BaseSettings
+from functools import lru_cache
+
+
+class Settings(BaseSettings):
+    APP_NAME: str = "LifePlan"
+    DEBUG: bool = False
+
+    # Database
+    DATABASE_URL: str = "postgresql+asyncpg://lifeplan_user:changeme@localhost:5432/lifeplan_db"
+    DATABASE_URL_SYNC: str = "postgresql+psycopg2://lifeplan_user:changeme@localhost:5432/lifeplan_db"
+
+    # Auth
+    SECRET_KEY: str = "change-this-to-a-long-random-string"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
+    # CORS — comma-separated list of allowed origins
+    # capacitor://localhost and http://localhost are required for the Android APK WebView
+    ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:3000,capacitor://localhost,http://localhost,http://192.168.1.182:5173"
+
+    # Google Cloud
+    GCP_PROJECT_ID: str = ""
+    GCP_REGION: str = "europe-west6"
+    VERTEX_AI_MODEL: str = "gemini-2.5-flash"
+
+    # Embeddings — using local sentence-transformers, no API key needed
+    EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"
+
+    # MongoDB
+    MONGODB_URI: str = ""
+    MONGODB_DB_NAME: str = "lifeplan"
+
+    # Google Calendar OAuth
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_REDIRECT_URI: str = "http://localhost:5173/calendar/callback"
+
+    def get_allowed_origins(self) -> list[str]:
+        return [o.strip() for o in self.ALLOWED_ORIGINS.split(",") if o.strip()]
+
+    def is_secret_key_placeholder(self) -> bool:
+        return self.SECRET_KEY == "change-this-to-a-long-random-string"
+
+    class Config:
+        env_file = ".env"
+        extra = "ignore"
+
+
+@lru_cache()
+def get_settings() -> Settings:
+    return Settings()
