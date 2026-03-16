@@ -1,5 +1,3 @@
-version: "3.9"
-
 # Production compose for deployed-stuff VM
 # Uses the VM's existing PostgreSQL 17 (no DB container needed)
 # Uses host networking so the container can reach 127.0.0.1:5432
