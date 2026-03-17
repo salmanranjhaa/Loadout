@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { MapPin, ChevronDown, ChevronUp, Plus, Trash2, Edit2, Check, X } from "lucide-react";
-import { scheduleAPI } from "../utils/api";
+import { MapPin, ChevronDown, ChevronUp, Plus, Trash2, Edit2, Check, Link2, RefreshCw } from "lucide-react";
+import { authAPI, runGoogleAuthPopup, scheduleAPI } from "../utils/api";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const DAY_FULL = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -25,6 +25,22 @@ const EMPTY_FORM = {
   location: "",
   description: "",
 };
+
+function toISODate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function mondayOfCurrentWeek() {
+  const now = new Date();
+  const day = (now.getDay() + 6) % 7; // Mon=0
+  const monday = new Date(now);
+  monday.setHours(0, 0, 0, 0);
+  monday.setDate(now.getDate() - day);
+  return monday;
+}
 
 // ─── Compact inline form used for both create and edit ───────────────────────
 function EventForm({ initial, onSave, onCancel, saving }) {
@@ -131,15 +147,23 @@ function EventForm({ initial, onSave, onCancel, saving }) {
 
 export default function SchedulePage() {
   const todayIdx = (new Date().getDay() + 6) % 7;
+  const currentWeekMonday = mondayOfCurrentWeek();
   const [selectedDay, setSelectedDay] = useState(todayIdx);
   const [expandedId, setExpandedId] = useState(null);
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [googleStatus, setGoogleStatus] = useState({ connected: false });
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [googleSyncing, setGoogleSyncing] = useState(false);
 
   // "create" shows the add-event form at the top; "edit" is an event id
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
+
+  const selectedDate = new Date(currentWeekMonday);
+  selectedDate.setDate(currentWeekMonday.getDate() + selectedDay);
+  const selectedDateISO = toISODate(selectedDate);
 
   useEffect(() => {
     async function load() {
@@ -147,7 +171,7 @@ export default function SchedulePage() {
       setCreating(false);
       setEditingId(null);
       try {
-        const data = await scheduleAPI.getAll(selectedDay);
+        const data = await scheduleAPI.getAll(selectedDay, selectedDateISO);
         setEvents(data.events);
       } catch {
         setEvents([]);
@@ -155,7 +179,51 @@ export default function SchedulePage() {
       setLoading(false);
     }
     load();
-  }, [selectedDay]);
+  }, [selectedDay, selectedDateISO]);
+
+  useEffect(() => {
+    async function loadGoogleStatus() {
+      try {
+        const status = await scheduleAPI.googleStatus();
+        setGoogleStatus(status);
+      } catch {
+        setGoogleStatus({ connected: false });
+      }
+    }
+    loadGoogleStatus();
+  }, []);
+
+  async function refreshCurrentDayEvents() {
+    const data = await scheduleAPI.getAll(selectedDay, selectedDateISO);
+    setEvents(data.events);
+  }
+
+  async function connectGoogleCalendar() {
+    setGoogleLoading(true);
+    try {
+      const { auth_url } = await authAPI.getGoogleConnectUrl(window.location.origin);
+      await runGoogleAuthPopup(auth_url, "connect");
+      const status = await scheduleAPI.googleStatus();
+      setGoogleStatus(status);
+      alert("Google Calendar connected.");
+    } catch (e) {
+      alert(e.message || "Failed to connect Google Calendar");
+    }
+    setGoogleLoading(false);
+  }
+
+  async function syncGoogleCalendar() {
+    setGoogleSyncing(true);
+    try {
+      await scheduleAPI.googleSync(1, 30);
+      const status = await scheduleAPI.googleStatus();
+      setGoogleStatus(status);
+      await refreshCurrentDayEvents();
+    } catch (e) {
+      alert(e.message || "Google sync failed");
+    }
+    setGoogleSyncing(false);
+  }
 
   async function handleCreate(form) {
     setSaving(true);
@@ -211,15 +279,43 @@ export default function SchedulePage() {
           <h1 className="text-xl font-bold bg-gradient-to-r from-emerald-400 to-blue-400 bg-clip-text text-transparent">
             Weekly Schedule
           </h1>
-          <p className="text-xs text-slate-500 mt-1">{DAY_FULL[selectedDay]}</p>
+          <p className="text-xs text-slate-500 mt-1">
+            {DAY_FULL[selectedDay]} • {selectedDateISO}
+          </p>
+          <p className="text-[10px] text-slate-600 mt-1">
+            {googleStatus.connected
+              ? `Google linked${googleStatus.google_email ? `: ${googleStatus.google_email}` : ""}`
+              : "Google Calendar not connected"}
+          </p>
         </div>
-        <button
-          onClick={() => { setCreating(true); setEditingId(null); }}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-blue-300 bg-blue-600/20 rounded-lg hover:bg-blue-600/30 transition-colors mt-1"
-        >
-          <Plus size={12} />
-          Add Event
-        </button>
+        <div className="flex flex-col gap-2 mt-1">
+          {googleStatus.connected ? (
+            <button
+              onClick={syncGoogleCalendar}
+              disabled={googleSyncing}
+              className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] text-indigo-200 bg-indigo-600/20 rounded-lg hover:bg-indigo-600/30 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw size={12} className={googleSyncing ? "animate-spin" : ""} />
+              {googleSyncing ? "Syncing..." : "Sync Google"}
+            </button>
+          ) : (
+            <button
+              onClick={connectGoogleCalendar}
+              disabled={googleLoading}
+              className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] text-indigo-200 bg-indigo-600/20 rounded-lg hover:bg-indigo-600/30 transition-colors disabled:opacity-50"
+            >
+              <Link2 size={12} />
+              {googleLoading ? "Opening..." : "Connect Google"}
+            </button>
+          )}
+          <button
+            onClick={() => { setCreating(true); setEditingId(null); }}
+            className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] text-blue-300 bg-blue-600/20 rounded-lg hover:bg-blue-600/30 transition-colors"
+          >
+            <Plus size={12} />
+            Add Event
+          </button>
+        </div>
       </div>
 
       {/* Day selector */}

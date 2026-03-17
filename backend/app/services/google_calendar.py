@@ -1,0 +1,269 @@
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
+import httpx
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.models.google_oauth import GoogleOAuthToken
+from app.models.schedule import EventType, RecurrenceType, ScheduleEvent
+from app.services.google_oauth import refresh_google_access_token
+
+
+GOOGLE_EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+
+
+def _parse_google_datetime(raw: str) -> datetime:
+    value = (raw or "").strip()
+    if value.endswith("Z"):
+        value = value[:-1] + "+00:00"
+    dt = datetime.fromisoformat(value)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _event_type_from_summary(summary: str | None) -> EventType:
+    text = (summary or "").lower()
+    if any(k in text for k in ["run", "crossfit", "gym", "workout", "football", "cycling", "yoga", "swim"]):
+        return EventType.EXERCISE
+    if any(k in text for k in ["breakfast", "lunch", "dinner", "meal", "snack"]):
+        return EventType.MEAL
+    if any(k in text for k in ["class", "lecture", "seminar", "course"]):
+        return EventType.CLASS
+    if any(k in text for k in ["meeting", "work", "project", "thesis"]):
+        return EventType.WORK
+    if any(k in text for k in ["chess", "party", "hangout", "social"]):
+        return EventType.SOCIAL
+    return EventType.ROUTINE
+
+
+async def _ensure_access_token(db: AsyncSession, token_row: GoogleOAuthToken) -> str:
+    now = datetime.now(timezone.utc)
+    if token_row.access_token and (
+        token_row.token_expiry is None or token_row.token_expiry > (now + timedelta(seconds=90))
+    ):
+        return token_row.access_token
+
+    if not token_row.refresh_token:
+        raise RuntimeError("Google token expired and no refresh token is available.")
+
+    refreshed = await refresh_google_access_token(token_row.refresh_token)
+    token_row.access_token = refreshed.get("access_token", "") or token_row.access_token
+    if refreshed.get("refresh_token"):
+        token_row.refresh_token = refreshed["refresh_token"]
+    expires_in = refreshed.get("expires_in")
+    if expires_in:
+        try:
+            token_row.token_expiry = now + timedelta(seconds=int(expires_in))
+        except (TypeError, ValueError):
+            pass
+    if refreshed.get("scope"):
+        token_row.scopes = refreshed["scope"]
+
+    await db.commit()
+    await db.refresh(token_row)
+    return token_row.access_token
+
+
+def _event_time_fields(event: dict) -> tuple[int, datetime, time, time]:
+    start = event.get("start") or {}
+    end = event.get("end") or {}
+
+    # All-day event
+    if start.get("date"):
+        event_date = date.fromisoformat(start["date"])
+        specific_date = datetime.combine(event_date, time(0, 0), tzinfo=timezone.utc)
+        return event_date.weekday(), specific_date, time(0, 0), time(23, 59)
+
+    start_raw = start.get("dateTime")
+    if not start_raw:
+        raise ValueError("Google event missing start")
+    end_raw = end.get("dateTime")
+
+    start_dt = _parse_google_datetime(start_raw)
+    end_dt = _parse_google_datetime(end_raw) if end_raw else (start_dt + timedelta(minutes=30))
+
+    tz_name = start.get("timeZone") or end.get("timeZone")
+    if tz_name:
+        try:
+            zone = ZoneInfo(tz_name)
+            start_dt = start_dt.astimezone(zone)
+            end_dt = end_dt.astimezone(zone)
+        except Exception:
+            pass
+
+    if end_dt <= start_dt:
+        end_dt = start_dt + timedelta(minutes=30)
+
+    return (
+        start_dt.weekday(),
+        start_dt,
+        start_dt.time().replace(second=0, microsecond=0, tzinfo=None),
+        end_dt.time().replace(second=0, microsecond=0, tzinfo=None),
+    )
+
+
+async def _fetch_google_events(
+    access_token: str,
+    *,
+    time_min: datetime,
+    time_max: datetime,
+) -> list[dict]:
+    headers = {"Authorization": f"Bearer {access_token}"}
+    params = {
+        "singleEvents": "true",
+        "orderBy": "startTime",
+        "showDeleted": "true",
+        "maxResults": "2500",
+        "timeMin": time_min.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "timeMax": time_max.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+
+    all_events: list[dict] = []
+    page_token = None
+    async with httpx.AsyncClient(timeout=45.0) as client:
+        while True:
+            req_params = dict(params)
+            if page_token:
+                req_params["pageToken"] = page_token
+            resp = await client.get(GOOGLE_EVENTS_URL, headers=headers, params=req_params)
+            if resp.status_code >= 400:
+                text = resp.text[:300].replace("\n", " ")
+                raise RuntimeError(f"Google Calendar events fetch failed ({resp.status_code}): {text}")
+            payload = resp.json()
+            all_events.extend(payload.get("items", []))
+            page_token = payload.get("nextPageToken")
+            if not page_token:
+                break
+    return all_events
+
+
+async def get_google_calendar_status(db: AsyncSession, user_id: int) -> dict:
+    result = await db.execute(select(GoogleOAuthToken).where(GoogleOAuthToken.user_id == user_id))
+    token_row = result.scalar_one_or_none()
+    if not token_row:
+        return {"connected": False}
+    return {
+        "connected": True,
+        "google_email": token_row.google_email,
+        "last_sync_at": token_row.last_sync_at.isoformat() if token_row.last_sync_at else None,
+        "token_expiry": token_row.token_expiry.isoformat() if token_row.token_expiry else None,
+        "scopes": token_row.scopes or "",
+    }
+
+
+async def sync_google_calendar(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    days_back: int = 1,
+    days_ahead: int = 30,
+) -> dict:
+    token_result = await db.execute(select(GoogleOAuthToken).where(GoogleOAuthToken.user_id == user_id))
+    token_row = token_result.scalar_one_or_none()
+    if not token_row:
+        raise RuntimeError("Google Calendar is not connected for this account.")
+
+    access_token = await _ensure_access_token(db, token_row)
+    now = datetime.now(timezone.utc)
+    time_min = now - timedelta(days=days_back)
+    time_max = now + timedelta(days=days_ahead)
+    remote_events = await _fetch_google_events(access_token, time_min=time_min, time_max=time_max)
+
+    local_result = await db.execute(
+        select(ScheduleEvent).where(ScheduleEvent.user_id == user_id)
+    )
+    local_events = local_result.scalars().all()
+    existing_google = {}
+    for ev in local_events:
+        payload = ev.event_data or {}
+        if payload.get("source") == "google_calendar" and payload.get("google_event_id"):
+            existing_google[payload["google_event_id"]] = ev
+
+    created = 0
+    updated = 0
+    deactivated = 0
+    remote_ids: set[str] = set()
+
+    for event in remote_events:
+        google_event_id = event.get("id")
+        if not google_event_id:
+            continue
+        remote_ids.add(google_event_id)
+        status = (event.get("status") or "").lower()
+        existing = existing_google.get(google_event_id)
+
+        if status == "cancelled":
+            if existing and existing.is_active:
+                existing.is_active = False
+                deactivated += 1
+            continue
+
+        try:
+            day_of_week, specific_date, start_time, end_time = _event_time_fields(event)
+        except Exception:
+            continue
+
+        summary = (event.get("summary") or "Calendar event").strip() or "Calendar event"
+        description = event.get("description")
+        location = event.get("location")
+        event_type = _event_type_from_summary(summary)
+        payload = {
+            "source": "google_calendar",
+            "google_event_id": google_event_id,
+            "calendar_id": "primary",
+            "status": status,
+            "html_link": event.get("htmlLink"),
+        }
+
+        if existing:
+            existing.title = summary
+            existing.description = description
+            existing.event_type = event_type
+            existing.day_of_week = day_of_week
+            existing.start_time = start_time
+            existing.end_time = end_time
+            existing.location = location
+            existing.specific_date = specific_date
+            existing.recurrence = RecurrenceType.ONCE
+            existing.event_data = payload
+            existing.is_active = True
+            updated += 1
+        else:
+            db.add(
+                ScheduleEvent(
+                    user_id=user_id,
+                    title=summary,
+                    description=description,
+                    event_type=event_type,
+                    day_of_week=day_of_week,
+                    start_time=start_time,
+                    end_time=end_time,
+                    location=location,
+                    recurrence=RecurrenceType.ONCE,
+                    specific_date=specific_date,
+                    event_data=payload,
+                    is_user_modified=False,
+                    is_active=True,
+                )
+            )
+            created += 1
+
+    for google_event_id, existing in existing_google.items():
+        if google_event_id not in remote_ids and existing.is_active:
+            existing.is_active = False
+            deactivated += 1
+
+    token_row.last_sync_at = now
+    await db.commit()
+
+    return {
+        "created": created,
+        "updated": updated,
+        "deactivated": deactivated,
+        "fetched": len(remote_events),
+        "range": {
+            "from": time_min.isoformat(),
+            "to": time_max.isoformat(),
+        },
+    }
+

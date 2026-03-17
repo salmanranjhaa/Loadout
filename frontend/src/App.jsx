@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Routes, Route, NavLink, Navigate } from "react-router-dom";
-import { Calendar, UtensilsCrossed, BarChart3, MessageCircle, Dumbbell, Wallet, Package, Shield } from "lucide-react";
+import { Calendar, UtensilsCrossed, BarChart3, MessageCircle, Dumbbell, Wallet, Package, Shield, LogOut } from "lucide-react";
 import { isLoggedIn, clearToken, userAPI } from "./utils/api";
 import SchedulePage from "./pages/SchedulePage";
 import MealsPage from "./pages/MealsPage";
@@ -71,8 +71,21 @@ export default function App() {
     ? [...NAV_ITEMS, { path: "/admin", icon: Shield, label: "Admin" }]
     : NAV_ITEMS;
 
+  function handleLogout() {
+    clearToken();
+    setProfile(null);
+    setLoggedIn(false);
+  }
+
   return (
     <div className="min-h-screen bg-bg pb-20 safe-top">
+      <button
+        onClick={handleLogout}
+        className="fixed top-3 right-3 z-50 flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-900/80 px-2 py-1 text-[10px] text-slate-300 hover:text-white"
+      >
+        <LogOut size={12} />
+        Logout
+      </button>
       <Routes>
         <Route path="/" element={<Navigate to="/schedule" replace />} />
         <Route path="/schedule" element={<SchedulePage />} />

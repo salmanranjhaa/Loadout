@@ -12,7 +12,8 @@ from app.models.user import User
 from app.models.schedule import ScheduleEvent, ScheduleModification
 from app.models.meal import MealTemplate, MealLog, GroceryList
 from app.models.analytics import WeightLog, WorkoutLog, DailySnapshot
-from app.models.chat import ChatSession  # noqa: F401 — registers table with metadata
+from app.models.chat import ChatSession  # noqa: F401 - registers table with metadata
+from app.models.google_oauth import GoogleOAuthToken  # noqa: F401
 
 config = context.config
 

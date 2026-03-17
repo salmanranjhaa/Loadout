@@ -11,6 +11,7 @@ class User(Base):
     email = Column(String(255), unique=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
     role = Column(String(20), nullable=False, default="user", server_default="user")
+    google_sub = Column(String(128), unique=True, nullable=True, index=True)
     
     # I store physical stats for calorie/macro calculations
     current_weight_kg = Column(Float, default=98.6)

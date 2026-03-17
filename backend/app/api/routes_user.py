@@ -33,6 +33,7 @@ async def get_profile(
         "id": u.id,
         "username": u.username,
         "email": u.email,
+        "google_connected": bool(u.google_sub),
         "role": u.role or "user",
         "is_active": bool(u.is_active),
         "current_weight_kg": u.current_weight_kg,

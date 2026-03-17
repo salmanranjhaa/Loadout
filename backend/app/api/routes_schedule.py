@@ -1,12 +1,13 @@
-from datetime import time
+from datetime import date as date_cls, time
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select
 from pydantic import BaseModel
 from typing import Optional
 from app.core.database import get_db
 from app.core.auth import get_current_user
 from app.models.schedule import ScheduleEvent, ScheduleModification, EventType
+from app.services.google_calendar import get_google_calendar_status, sync_google_calendar
 from app.services.rag import embed_and_store_modification
 
 router = APIRouter(prefix="/schedule", tags=["schedule"])
@@ -32,9 +33,15 @@ class EventUpdate(BaseModel):
     reason: Optional[str] = None  # I ask the user why they changed it for RAG learning
 
 
+class GoogleCalendarSyncRequest(BaseModel):
+    days_back: int = 1
+    days_ahead: int = 30
+
+
 @router.get("/")
 async def get_schedule(
     day: Optional[int] = None,
+    target_date: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(get_current_user),
 ):
@@ -43,14 +50,80 @@ async def get_schedule(
         ScheduleEvent.user_id == user["sub"],
         ScheduleEvent.is_active == True,
     )
+
+    parsed_date: Optional[date_cls] = None
+    if target_date:
+        try:
+            parsed_date = date_cls.fromisoformat(target_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid target_date format. Use YYYY-MM-DD.")
+
     if day is not None:
-        query = query.where(ScheduleEvent.day_of_week == day)
+        if parsed_date:
+            day_idx = parsed_date.weekday()
+            if day_idx != day:
+                raise HTTPException(status_code=400, detail="day does not match target_date weekday")
+            query = query.where(
+                or_(
+                    and_(ScheduleEvent.specific_date.is_(None), ScheduleEvent.day_of_week == day),
+                    and_(
+                        ScheduleEvent.specific_date.isnot(None),
+                        func.date(ScheduleEvent.specific_date) == parsed_date,
+                    ),
+                )
+            )
+        else:
+            query = query.where(ScheduleEvent.day_of_week == day)
+    elif parsed_date:
+        day_idx = parsed_date.weekday()
+        query = query.where(
+            or_(
+                and_(ScheduleEvent.specific_date.is_(None), ScheduleEvent.day_of_week == day_idx),
+                and_(
+                    ScheduleEvent.specific_date.isnot(None),
+                    func.date(ScheduleEvent.specific_date) == parsed_date,
+                ),
+            )
+        )
+
     query = query.order_by(ScheduleEvent.day_of_week, ScheduleEvent.start_time)
     
     result = await db.execute(query)
     events = result.scalars().all()
     
     return {"events": [_format_event(e) for e in events]}
+
+
+@router.get("/google/status")
+async def google_calendar_status(
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """I return whether Google Calendar is connected for this user."""
+    return await get_google_calendar_status(db, user["sub"])
+
+
+@router.post("/google/sync")
+async def google_calendar_sync(
+    body: GoogleCalendarSyncRequest,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """I sync events from Google Calendar into schedule events."""
+    if body.days_back < 0 or body.days_back > 30:
+        raise HTTPException(status_code=400, detail="days_back must be between 0 and 30")
+    if body.days_ahead < 1 or body.days_ahead > 365:
+        raise HTTPException(status_code=400, detail="days_ahead must be between 1 and 365")
+    try:
+        result = await sync_google_calendar(
+            db,
+            user_id=user["sub"],
+            days_back=body.days_back,
+            days_ahead=body.days_ahead,
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, **result}
 
 
 @router.post("/")
@@ -173,5 +246,6 @@ def _format_event(e: ScheduleEvent) -> dict:
         "end_time": str(e.end_time) if e.end_time else None,
         "location": e.location,
         "event_data": e.event_data,
+        "specific_date": e.specific_date.isoformat() if e.specific_date else None,
         "is_user_modified": e.is_user_modified,
     }

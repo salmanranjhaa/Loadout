@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     # Comma-separated fallback candidates tried if the primary model/region fails.
     VERTEX_AI_MODEL_FALLBACKS: str = "gemini-2.5-flash,gemini-1.5-flash"
     VERTEX_AI_FALLBACK_REGIONS: str = "us-central1"
+    ENABLE_GROQ_FALLBACK: bool = True
+    GROQ_API_KEY: str = ""
+    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
+    GROQ_MODEL: str = "moonshotai/kimi-k2-instruct-0905"
+    GROQ_MODEL_FALLBACKS: str = ""
 
     # Embeddings — using local sentence-transformers, no API key needed
     EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"
@@ -37,7 +42,7 @@ class Settings(BaseSettings):
     # Google Calendar OAuth
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
-    GOOGLE_REDIRECT_URI: str = "http://localhost:5173/calendar/callback"
+    GOOGLE_REDIRECT_URI: str = "http://localhost:8001/api/v1/auth/google/callback"
 
     def get_allowed_origins(self) -> list[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",") if o.strip()]

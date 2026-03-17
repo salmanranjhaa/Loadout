@@ -1,6 +1,18 @@
 // I handle all API communication with the FastAPI backend
 const API_BASE = import.meta.env.VITE_API_URL || "/api/v1";
 
+export function getApiBase() {
+  return API_BASE;
+}
+
+export function getApiOrigin() {
+  try {
+    return new URL(API_BASE, window.location.origin).origin;
+  } catch {
+    return window.location.origin;
+  }
+}
+
 function getToken() {
   return localStorage.getItem("lifeplan_token");
 }
@@ -48,18 +60,39 @@ export const authAPI = {
       method: "POST",
       body: JSON.stringify({ username, password }),
     }),
+  register: (username, email, password) =>
+    request("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ username, email, password }),
+    }),
   refresh: (refresh_token) =>
     request("/auth/refresh", {
       method: "POST",
       body: JSON.stringify({ refresh_token }),
     }),
+  getGoogleLoginUrl: (origin) =>
+    request(`/auth/google/login-url?origin=${encodeURIComponent(origin)}`),
+  getGoogleConnectUrl: (origin) =>
+    request(`/auth/google/connect-url?origin=${encodeURIComponent(origin)}`),
 };
 
 export const scheduleAPI = {
-  getAll: (day) => request(`/schedule/${day !== undefined ? `?day=${day}` : ""}`),
+  getAll: (day, targetDate) => {
+    const params = new URLSearchParams();
+    if (day !== undefined && day !== null) params.set("day", String(day));
+    if (targetDate) params.set("target_date", targetDate);
+    const query = params.toString();
+    return request(`/schedule/${query ? `?${query}` : ""}`);
+  },
   create: (data) => request("/schedule/", { method: "POST", body: JSON.stringify(data) }),
   update: (id, data) => request(`/schedule/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id) => request(`/schedule/${id}`, { method: "DELETE" }),
+  googleStatus: () => request("/schedule/google/status"),
+  googleSync: (daysBack = 1, daysAhead = 30) =>
+    request("/schedule/google/sync", {
+      method: "POST",
+      body: JSON.stringify({ days_back: daysBack, days_ahead: daysAhead }),
+    }),
 };
 
 export const mealsAPI = {
@@ -141,3 +174,57 @@ export const adminAPI = {
   createUser: (data) => request("/admin/users", { method: "POST", body: JSON.stringify(data) }),
   updateUser: (id, data) => request(`/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
 };
+
+
+export function runGoogleAuthPopup(authUrl, expectedMode, timeoutMs = 120000) {
+  const popup = window.open(authUrl, "lifeplan_google_auth", "width=520,height=700");
+  if (!popup) {
+    return Promise.reject(new Error("Popup blocked. Please allow popups and try again."));
+  }
+
+  const backendOrigin = (() => {
+    try {
+      return new URL(authUrl).origin;
+    } catch {
+      return getApiOrigin();
+    }
+  })();
+
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const cleanup = () => {
+      window.removeEventListener("message", onMessage);
+      clearInterval(closePoll);
+      clearTimeout(timeout);
+      if (!popup.closed) popup.close();
+    };
+    const finish = (fn, value) => {
+      if (done) return;
+      done = true;
+      cleanup();
+      fn(value);
+    };
+    const onMessage = (event) => {
+      if (event.origin !== backendOrigin) return;
+      if (!event.data || event.data.type !== "lifeplan_google_auth") return;
+      const payload = event.data.payload || {};
+      if (expectedMode && payload.mode !== expectedMode) return;
+      if (payload.status === "success") {
+        finish(resolve, payload);
+      } else {
+        finish(reject, new Error(payload.error || "Google authentication failed"));
+      }
+    };
+
+    const closePoll = setInterval(() => {
+      if (popup.closed) {
+        finish(reject, new Error("Google authentication window was closed"));
+      }
+    }, 500);
+    const timeout = setTimeout(() => {
+      finish(reject, new Error("Google authentication timed out"));
+    }, timeoutMs);
+
+    window.addEventListener("message", onMessage);
+  });
+}
