@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import {
   Activity,
+  Eye,
+  EyeOff,
   RefreshCw,
   Search,
   Shield,
@@ -33,6 +35,7 @@ export default function AdminPage({ currentUser }) {
   const [error, setError] = useState("");
   const [workingId, setWorkingId] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [showCreatePassword, setShowCreatePassword] = useState(false);
 
   const [newUser, setNewUser] = useState({
     username: "",
@@ -166,13 +169,23 @@ export default function AdminPage({ currentUser }) {
                 placeholder="email"
                 className="bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 border border-slate-700 focus:border-violet-500 focus:outline-none"
               />
-              <input
-                value={newUser.password}
-                onChange={(e) => setNewUser((p) => ({ ...p, password: e.target.value }))}
-                placeholder="password"
-                type="password"
-                className="bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 border border-slate-700 focus:border-violet-500 focus:outline-none"
-              />
+              <div className="relative">
+                <input
+                  value={newUser.password}
+                  onChange={(e) => setNewUser((p) => ({ ...p, password: e.target.value }))}
+                  placeholder="password"
+                  type={showCreatePassword ? "text" : "password"}
+                  className="w-full bg-slate-800 rounded-lg px-3 py-2 pr-9 text-sm text-slate-200 border border-slate-700 focus:border-violet-500 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowCreatePassword((v) => !v)}
+                  className="absolute inset-y-0 right-0 px-2.5 text-slate-500 hover:text-slate-300"
+                  aria-label={showCreatePassword ? "Hide password" : "Show password"}
+                >
+                  {showCreatePassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
               <select
                 value={newUser.role}
                 onChange={(e) => setNewUser((p) => ({ ...p, role: e.target.value }))}
@@ -268,4 +281,3 @@ export default function AdminPage({ currentUser }) {
     </div>
   );
 }
-

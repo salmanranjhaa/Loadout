@@ -245,10 +245,121 @@ _WORKOUT_METS = {
     "swimming": 7.0, "hiit": 8.5, "walking": 3.5,
 }
 
+_WORKOUT_PRIMARY_MUSCLES = {
+    "running": ["quads", "hamstrings", "calves", "core"],
+    "cycling": ["quads", "glutes", "hamstrings", "calves"],
+    "swimming": ["lats", "shoulders", "core", "glutes"],
+    "crossfit": ["full body", "core"],
+    "hiit": ["full body", "core"],
+    "football": ["quads", "hamstrings", "calves", "core"],
+    "boxing": ["shoulders", "chest", "core", "triceps"],
+    "walking": ["quads", "calves"],
+    "yoga": ["core", "glutes", "hamstrings"],
+    "stretch": ["mobility"],
+}
+
+
+def _as_float(value):
+    try:
+        if value is None or value == "":
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
 
 def _estimate_calories_fallback(workout_type: str, duration_minutes: int, weight_kg: float) -> int:
     met = _WORKOUT_METS.get(workout_type.lower(), 6.0)
     return round(met * weight_kg * (duration_minutes / 60))
+
+
+def _estimate_calories_with_details(
+    workout_type: str,
+    duration_minutes: int,
+    weight_kg: float,
+    details: dict | None = None,
+) -> tuple[int, str]:
+    details = details or {}
+    wt = (workout_type or "").lower()
+    base = _estimate_calories_fallback(wt, duration_minutes, weight_kg)
+    basis = [f"MET baseline for {wt or 'workout'} and {duration_minutes} min"]
+
+    # If user entered watch/manual calories, trust it strongly.
+    manual_cal = _as_float(details.get("calories_burned"))
+    if manual_cal and manual_cal > 0:
+        base = int(round(manual_cal))
+        basis.append("user provided calories from activity metrics")
+        return base, "; ".join(basis)
+
+    distance_km = _as_float(details.get("distance_km"))
+    avg_pace = _as_float(details.get("avg_pace_min_km"))
+    avg_speed = _as_float(details.get("avg_speed_kmh"))
+    avg_hr = _as_float(details.get("avg_hr_bpm"))
+    elevation_m = _as_float(details.get("elevation_m"))
+
+    if wt == "running" and distance_km and distance_km > 0:
+        by_distance = distance_km * weight_kg * 1.0
+        base = int(round((base + by_distance) / 2))
+        basis.append(f"distance model ({distance_km:.1f} km)")
+        if avg_pace:
+            if avg_pace <= 5.0:
+                base = int(round(base * 1.10))
+                basis.append("fast pace adjustment")
+            elif avg_pace >= 6.7:
+                base = int(round(base * 0.92))
+                basis.append("easy pace adjustment")
+
+    if wt == "cycling" and avg_speed and avg_speed > 0:
+        speed_factor = min(1.35, max(0.8, avg_speed / 20.0))
+        base = int(round(base * speed_factor))
+        basis.append(f"cycling speed adjustment ({avg_speed:.1f} km/h)")
+
+    if wt == "walking" and distance_km and distance_km > 0:
+        by_distance = distance_km * weight_kg * 0.6
+        base = int(round((base + by_distance) / 2))
+        basis.append(f"walking distance model ({distance_km:.1f} km)")
+
+    if elevation_m and elevation_m > 0:
+        elev_boost = min(1.18, 1 + (elevation_m / 2000))
+        base = int(round(base * elev_boost))
+        basis.append(f"elevation adjustment ({int(elevation_m)} m)")
+
+    if avg_hr and avg_hr > 0:
+        hr_factor = min(1.30, max(0.82, avg_hr / 140.0))
+        base = int(round(base * hr_factor))
+        basis.append(f"heart-rate adjustment ({int(avg_hr)} bpm)")
+
+    return max(base, 20), "; ".join(basis)
+
+
+def _estimate_intensity_score(
+    duration_minutes: int,
+    intensity: str,
+    details: dict | None = None,
+) -> int:
+    details = details or {}
+    score = {"low": 4, "moderate": 6, "high": 8}.get((intensity or "moderate").lower(), 6)
+
+    avg_hr = _as_float(details.get("avg_hr_bpm"))
+    if avg_hr:
+        if avg_hr >= 170:
+            score += 2
+        elif avg_hr >= 155:
+            score += 1
+        elif avg_hr <= 120:
+            score -= 1
+
+    if duration_minutes >= 90:
+        score += 1
+    elif duration_minutes <= 20:
+        score -= 1
+
+    return max(1, min(10, int(round(score))))
+
+
+def _estimate_recovery_hours(duration_minutes: int, intensity_score: int) -> int:
+    hours = 8 + (intensity_score * 2.8) + (max(duration_minutes - 30, 0) * 0.18)
+    return int(max(8, min(72, round(hours))))
 
 
 def _fallback_workout_analysis(
@@ -257,18 +368,34 @@ def _fallback_workout_analysis(
     intensity: str,
     weight_kg: float,
     note: str,
+    details: dict | None = None,
+    reason: str | None = None,
 ) -> dict:
-    intensity_norm = (intensity or "moderate").lower()
-    intensity_score = {"low": 4, "moderate": 6, "high": 8}.get(intensity_norm, 6)
-    recovery_hours = {"low": 12, "moderate": 24, "high": 36}.get(intensity_norm, 24)
+    wt = (workout_type or "").lower()
+    calories, basis = _estimate_calories_with_details(wt, duration_minutes, weight_kg, details)
+    intensity_score = _estimate_intensity_score(duration_minutes, intensity, details)
+    recovery_hours = _estimate_recovery_hours(duration_minutes, intensity_score)
+    if intensity_score >= 8:
+        cardio_impact = "high"
+    elif intensity_score >= 5:
+        cardio_impact = "moderate"
+    else:
+        cardio_impact = "low"
+
+    notes = note
+    if reason:
+        notes = f"{note} ({reason})"
+
     return {
-        "calories_burned": _estimate_calories_fallback(workout_type, duration_minutes, weight_kg),
+        "calories_burned": calories,
         "intensity_score": intensity_score,
-        "muscle_groups": [],
-        "cardio_impact": intensity_norm,
+        "muscle_groups": _WORKOUT_PRIMARY_MUSCLES.get(wt, []),
+        "cardio_impact": cardio_impact,
         "recovery_hours": recovery_hours,
-        "notes": note,
-        "weekly_impact": "Estimate only; AI analysis unavailable right now.",
+        "notes": notes,
+        "weekly_impact": "Metric-based estimate used for this workout.",
+        "analysis_source": "estimated",
+        "estimation_basis": basis,
     }
 
 
@@ -357,6 +484,7 @@ async def analyze_workout(
     duration_minutes: int,
     intensity: str,
     description: str,
+    details: dict | None,
     user_profile: dict,
 ) -> dict:
     """I use Gemini to analyze a workout and return calories, impact, recovery recommendations."""
@@ -367,17 +495,20 @@ async def analyze_workout(
         intensity=intensity,
         weight_kg=weight,
         note="Used estimated values.",
+        details=details,
     )
 
     if not settings.GCP_PROJECT_ID:
-        fallback["notes"] = "GCP not configured; used estimated values."
+        fallback["notes"] = "GCP not configured; using metric-based estimate."
         return fallback
 
+    metrics_json = json.dumps(details or {}, ensure_ascii=True)
     prompt = f"""Analyze this workout. Respond ONLY with valid JSON, no other text.
 
 ATHLETE: weight {weight}kg, goal: weight loss while maintaining muscle
 WORKOUT: {workout_type} | {duration_minutes} min | {intensity} intensity
 DESCRIPTION: {description or "No description provided"}
+METRICS: {metrics_json}
 
 Respond with exactly this JSON structure:
 {{
@@ -414,18 +545,25 @@ Respond with exactly this JSON structure:
             parsed = await _run_analysis(strict_prompt)
 
         muscle_groups = parsed.get("muscle_groups") if isinstance(parsed.get("muscle_groups"), list) else []
+        ai_calories = _as_int(parsed.get("calories_burned"), fallback["calories_burned"])
+        if ai_calories < 20 or ai_calories > 2500:
+            ai_calories = fallback["calories_burned"]
+
         return {
-            "calories_burned": _as_int(parsed.get("calories_burned"), fallback["calories_burned"]),
+            "calories_burned": ai_calories,
             "intensity_score": max(1, min(10, _as_int(parsed.get("intensity_score"), fallback["intensity_score"]))),
-            "muscle_groups": muscle_groups,
+            "muscle_groups": muscle_groups or fallback["muscle_groups"],
             "cardio_impact": parsed.get("cardio_impact", fallback["cardio_impact"]),
             "recovery_hours": max(0, _as_int(parsed.get("recovery_hours"), fallback["recovery_hours"])),
-            "notes": parsed.get("notes", fallback["notes"]),
+            "notes": parsed.get("notes", fallback["notes"]) or fallback["notes"],
             "weekly_impact": parsed.get("weekly_impact", fallback["weekly_impact"]),
+            "analysis_source": "ai",
+            "estimation_basis": fallback["estimation_basis"],
         }
     except Exception as e:
         logger.error(f"Workout analysis failed: {e}")
-        fallback["notes"] = "AI analysis unavailable; used estimated calories."
+        fallback["notes"] = "AI analysis unavailable; using metric-based estimate."
+        fallback["analysis_error"] = str(e)[:180]
         return fallback
 
 

@@ -5,9 +5,12 @@ import { mealsAPI, aiAPI, userAPI } from "../utils/api";
 const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"];
 
 export default function MealsPage() {
-  const [view, setView] = useState("today"); // "today" | "templates" | "manual"
+  const [view, setView] = useState("today"); // "today" | "templates" | "manual" | "history"
   const [todayMeals, setTodayMeals] = useState([]);
   const [templates, setTemplates] = useState([]);
+  const [mealHistory, setMealHistory] = useState({});
+  const [historyDays, setHistoryDays] = useState(14);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const [targets, setTargets] = useState({ calories: 2100, protein: 190 });
   const [supplements, setSupplements] = useState(null);
 
@@ -32,10 +35,12 @@ export default function MealsPage() {
   const totalProtein = todayMeals.reduce((s, m) => s + (m.protein_g || 0), 0);
   const calPct = Math.min((totalCals / targets.calories) * 100, 100);
   const proPct = Math.min((totalProtein / targets.protein) * 100, 100);
+  const historyEntries = Object.entries(mealHistory || {}).sort(([a], [b]) => (a < b ? 1 : -1));
 
   useEffect(() => {
     loadToday();
     loadTemplates();
+    loadHistory(14);
     userAPI.getProfile().then(p => {
       setTargets({ calories: p.daily_calorie_target || 2100, protein: p.daily_protein_target || 190 });
       setSupplements(p.supplements);
@@ -48,6 +53,17 @@ export default function MealsPage() {
 
   async function loadTemplates() {
     try { const d = await mealsAPI.getTemplates(); setTemplates(d.templates); } catch { /* ignore */ }
+  }
+
+  async function loadHistory(days = historyDays) {
+    setLoadingHistory(true);
+    try {
+      const d = await mealsAPI.getHistory(days);
+      setMealHistory(d.history || {});
+    } catch {
+      setMealHistory({});
+    }
+    setLoadingHistory(false);
   }
 
   async function logFromTemplate(template) {
@@ -63,6 +79,7 @@ export default function MealsPage() {
         fat_g: template.fat_g,
       });
       await loadToday();
+      await loadHistory(historyDays);
       setView("today");
     } catch (e) { alert("Failed to log: " + e.message); }
     setLoggingId(null);
@@ -70,7 +87,11 @@ export default function MealsPage() {
 
   async function deleteLog(id) {
     setDeletingLogId(id);
-    try { await mealsAPI.deleteLog(id); setTodayMeals(p => p.filter(m => m.id !== id)); }
+    try {
+      await mealsAPI.deleteLog(id);
+      setTodayMeals(p => p.filter(m => m.id !== id));
+      await loadHistory(historyDays);
+    }
     catch { /* ignore */ }
     setDeletingLogId(null);
   }
@@ -158,6 +179,7 @@ export default function MealsPage() {
       setManualEdited(null);
       setManualInput("");
       await loadToday();
+      await loadHistory(historyDays);
       setView("today");
     } catch (e) { alert("Failed: " + e.message); }
     setConfirmingLog(false);
@@ -202,6 +224,7 @@ export default function MealsPage() {
           { id: "today", label: "Today" },
           { id: "templates", label: "Quick Log" },
           { id: "manual", label: "Add Meal" },
+          { id: "history", label: "History" },
         ].map(t => (
           <button
             key={t.id}
@@ -439,6 +462,68 @@ export default function MealsPage() {
 
           {manualResult?.error && (
             <p className="text-xs text-red-400 bg-red-950/20 rounded-lg p-3">{manualResult.error}</p>
+          )}
+        </div>
+      )}
+
+      {/* Meal history */}
+      {view === "history" && (
+        <div className="space-y-3">
+          <div className="bg-bg-card rounded-lg p-3 flex items-center justify-between gap-2">
+            <span className="text-xs text-slate-400">Show last</span>
+            <div className="flex gap-1.5">
+              {[7, 14, 30].map((d) => (
+                <button
+                  key={d}
+                  onClick={() => {
+                    setHistoryDays(d);
+                    loadHistory(d);
+                  }}
+                  className={`px-2.5 py-1 rounded text-[11px] ${
+                    historyDays === d
+                      ? "bg-amber-600/20 text-amber-300 ring-1 ring-amber-500/40"
+                      : "bg-slate-800 text-slate-500"
+                  }`}
+                >
+                  {d}d
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {loadingHistory ? (
+            <div className="text-center py-8 text-slate-500 text-sm">Loading history...</div>
+          ) : historyEntries.length === 0 ? (
+            <div className="text-center py-8 text-slate-500 text-sm">No meal history yet.</div>
+          ) : (
+            historyEntries.map(([day, bucket]) => (
+              <div key={day} className="bg-bg-card rounded-xl border border-slate-800 overflow-hidden">
+                <div className="px-3 py-2.5 border-b border-slate-800">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-slate-200">
+                      {new Date(`${day}T00:00:00`).toLocaleDateString()}
+                    </p>
+                    <p className="text-[11px] text-slate-400">
+                      {Math.round(bucket.total_calories || 0)} kcal · {Math.round(bucket.total_protein || 0)}g protein
+                    </p>
+                  </div>
+                </div>
+                <div className="p-3 space-y-2">
+                  {(bucket.meals || []).map((m) => (
+                    <div key={m.id} className="bg-slate-800/60 rounded-lg px-2.5 py-2 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-xs text-slate-200 truncate">{m.name}</p>
+                        <p className="text-[10px] text-slate-500 capitalize">{m.meal_type}</p>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className="text-[11px] text-amber-400">{Math.round(m.calories || 0)} kcal</p>
+                        <p className="text-[10px] text-emerald-400">{Math.round(m.protein_g || 0)}g prot</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
           )}
         </div>
       )}

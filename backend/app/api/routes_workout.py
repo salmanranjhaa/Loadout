@@ -43,6 +43,7 @@ class WorkoutAnalyzeRequest(BaseModel):
     duration_minutes: int
     intensity: str = "moderate"
     description: str = ""
+    details: Optional[dict] = None
 
 
 class WorkoutSaveRequest(BaseModel):
@@ -74,6 +75,7 @@ async def analyze_workout_route(
         duration_minutes=body.duration_minutes,
         intensity=body.intensity,
         description=body.description,
+        details=body.details,
         user_profile=profile,
     )
     return result

@@ -439,6 +439,7 @@ export default function ChatPage() {
   const [sessions, setSessions] = useState([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
   const messagesEndRef = useRef(null);
+  const composerRef = useRef(null);
 
   useEffect(() => {
     userAPI.getProfile().then(p => {
@@ -488,6 +489,13 @@ export default function ChatPage() {
     try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(messages)); } catch {}
   }, [messages]);
 
+  useEffect(() => {
+    if (!composerRef.current) return;
+    composerRef.current.style.height = "auto";
+    const next = Math.min(composerRef.current.scrollHeight, 180);
+    composerRef.current.style.height = `${next}px`;
+  }, [input]);
+
   async function sendMessage(text) {
     const userMsg = text || input.trim();
     if (!userMsg) return;
@@ -495,6 +503,7 @@ export default function ChatPage() {
     const newMessages = [...messages, { role: "user", content: userMsg }];
     setMessages(newMessages);
     setInput("");
+    if (composerRef.current) composerRef.current.style.height = "auto";
     setLoading(true);
 
     try {
@@ -703,12 +712,19 @@ export default function ChatPage() {
 
       <div className="px-4 pb-4 pt-2 border-t border-slate-800">
         <div className="flex gap-2">
-          <input
+          <textarea
+            ref={composerRef}
             value={input}
             onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && !e.shiftKey && sendMessage()}
+            onKeyDown={e => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+              }
+            }}
             placeholder="Ask about meals, swaps, macros…"
-            className="flex-1 bg-bg-card rounded-xl px-4 py-3 text-sm border border-slate-700 focus:border-purple-500 focus:outline-none"
+            rows={1}
+            className="flex-1 bg-bg-card rounded-xl px-4 py-3 text-sm border border-slate-700 focus:border-purple-500 focus:outline-none resize-none overflow-y-auto"
           />
           <button
             onClick={() => sendMessage()}

@@ -208,6 +208,17 @@ function WorkoutHistoryItem({ w, onDelete }) {
           {/* AI analysis for cardio */}
           {w.ai_analysis && (
             <div className="space-y-2">
+              {w.ai_analysis.analysis_source && (
+                <div className="flex justify-end">
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-wide ${
+                    w.ai_analysis.analysis_source === "ai"
+                      ? "bg-emerald-900/40 text-emerald-300"
+                      : "bg-amber-900/40 text-amber-300"
+                  }`}>
+                    {w.ai_analysis.analysis_source === "ai" ? "AI" : "Estimated"}
+                  </span>
+                </div>
+              )}
               <div className="grid grid-cols-3 gap-2">
                 <div className="bg-slate-800/60 rounded-lg p-2 text-center">
                   <div className="text-base font-bold text-amber-400">{w.ai_analysis.calories_burned ?? "—"}</div>
@@ -215,11 +226,11 @@ function WorkoutHistoryItem({ w, onDelete }) {
                 </div>
                 <div className="bg-slate-800/60 rounded-lg p-2 text-center">
                   <div className="text-base font-bold text-blue-400">{w.ai_analysis.recovery_hours ?? "—"}h</div>
-                  <div className="text-[9px] text-slate-500">recovery</div>
+                  <div className="text-[9px] text-slate-500">recovery target</div>
                 </div>
                 <div className="bg-slate-800/60 rounded-lg p-2 text-center">
                   <div className="text-base font-bold text-emerald-400">{w.ai_analysis.intensity_score ?? "—"}/10</div>
-                  <div className="text-[9px] text-slate-500">intensity</div>
+                  <div className="text-[9px] text-slate-500">load score</div>
                 </div>
               </div>
 
@@ -236,6 +247,9 @@ function WorkoutHistoryItem({ w, onDelete }) {
               )}
               {w.ai_analysis.weekly_impact && (
                 <p className="text-[10px] text-slate-500 italic">{w.ai_analysis.weekly_impact}</p>
+              )}
+              {w.ai_analysis.estimation_basis && (
+                <p className="text-[10px] text-slate-500 italic">Basis: {w.ai_analysis.estimation_basis}</p>
               )}
             </div>
           )}
@@ -255,9 +269,20 @@ function WorkoutHistoryItem({ w, onDelete }) {
 function AnalysisCard({ analysis }) {
   return (
     <div className="bg-slate-800/60 rounded-xl p-3 border border-slate-700 space-y-3">
-      <div className="flex items-center gap-2">
-        <Brain size={13} className="text-purple-400" />
-        <span className="text-xs font-semibold text-purple-400">AI Analysis</span>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Brain size={13} className="text-purple-400" />
+          <span className="text-xs font-semibold text-purple-400">Workout Analysis</span>
+        </div>
+        {analysis.analysis_source && (
+          <span className={`text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-wide ${
+            analysis.analysis_source === "ai"
+              ? "bg-emerald-900/40 text-emerald-300"
+              : "bg-amber-900/40 text-amber-300"
+          }`}>
+            {analysis.analysis_source === "ai" ? "AI" : "Estimated"}
+          </span>
+        )}
       </div>
       <div className="grid grid-cols-3 gap-2">
         <div className="text-center">
@@ -266,11 +291,11 @@ function AnalysisCard({ analysis }) {
         </div>
         <div className="text-center">
           <div className="text-lg font-bold text-blue-400">{analysis.recovery_hours ?? "—"}h</div>
-          <div className="text-[10px] text-slate-500">recovery</div>
+          <div className="text-[10px] text-slate-500">recovery target</div>
         </div>
         <div className="text-center">
           <div className="text-lg font-bold text-emerald-400">{analysis.intensity_score ?? "—"}/10</div>
-          <div className="text-[10px] text-slate-500">intensity</div>
+          <div className="text-[10px] text-slate-500">load score</div>
         </div>
       </div>
       {analysis.muscle_groups?.length > 0 && (
@@ -282,6 +307,11 @@ function AnalysisCard({ analysis }) {
       )}
       {analysis.notes && (
         <p className="text-xs text-slate-400 leading-relaxed border-t border-slate-700 pt-2">{analysis.notes}</p>
+      )}
+      {analysis.estimation_basis && (
+        <p className="text-[10px] text-slate-500 italic border-t border-slate-700 pt-2">
+          Basis: {analysis.estimation_basis}
+        </p>
       )}
     </div>
   );
@@ -612,10 +642,16 @@ function CardioTab({ onSaved }) {
     setAnalysis(null);
     setSaved(false);
     try {
-      const result = await workoutAPI.analyze({ workout_type: selectedType, duration_minutes: duration, intensity, description });
+      const result = await workoutAPI.analyze({
+        workout_type: selectedType,
+        duration_minutes: duration,
+        intensity,
+        description,
+        details: Object.keys(cardioDetails).length > 0 ? cardioDetails : undefined,
+      });
       setAnalysis(result);
     } catch (e) {
-      setAnalysis({ notes: e.message || "Analysis failed", calories_burned: null });
+      setAnalysis({ notes: e.message || "Analysis failed", calories_burned: null, analysis_source: "estimated" });
     }
     setAnalyzing(false);
   }
