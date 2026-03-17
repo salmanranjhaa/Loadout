@@ -33,6 +33,8 @@ async def get_profile(
         "id": u.id,
         "username": u.username,
         "email": u.email,
+        "role": u.role or "user",
+        "is_active": bool(u.is_active),
         "current_weight_kg": u.current_weight_kg,
         "target_weight_kg": u.target_weight_kg,
         "height_cm": u.height_cm,

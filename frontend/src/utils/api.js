@@ -133,3 +133,11 @@ export const inventoryAPI = {
   update: (id, data) => request(`/inventory/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id) => request(`/inventory/${id}`, { method: "DELETE" }),
 };
+
+export const adminAPI = {
+  getOverview: () => request("/admin/overview"),
+  getUsers: (q = "", limit = 200) =>
+    request(`/admin/users?limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ""}`),
+  createUser: (data) => request("/admin/users", { method: "POST", body: JSON.stringify(data) }),
+  updateUser: (id, data) => request(`/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+};

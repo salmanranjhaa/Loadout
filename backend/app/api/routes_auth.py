@@ -27,6 +27,9 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    user_id: int
+    username: str
+    role: str
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -48,6 +51,9 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     return TokenResponse(
         access_token=create_access_token(token_data),
         refresh_token=create_refresh_token(token_data),
+        user_id=user.id,
+        username=user.username,
+        role=user.role or "user",
     )
 
 
@@ -65,4 +71,7 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     return TokenResponse(
         access_token=create_access_token(token_data),
         refresh_token=create_refresh_token(token_data),
+        user_id=user.id,
+        username=user.username,
+        role=user.role or "user",
     )

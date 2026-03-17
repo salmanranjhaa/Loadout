@@ -245,6 +245,7 @@ async def seed():
             username="sal",
             email="sal@lifeplan.app",
             hashed_password=hash_password("changeme123"),
+            role="admin",
             current_weight_kg=98.6,
             target_weight_kg=81.0,
             height_cm=175.0,

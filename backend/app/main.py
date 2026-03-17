@@ -16,6 +16,7 @@ from app.api.routes_auth import router as auth_router
 from app.api.routes_inventory import router as inventory_router
 from app.api.routes_user import router as user_router
 from app.api.routes_chat import router as chat_router
+from app.api.routes_admin import router as admin_router
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -65,6 +66,7 @@ app.include_router(ai_router, prefix="/api/v1")
 app.include_router(inventory_router, prefix="/api/v1")
 app.include_router(user_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
+app.include_router(admin_router, prefix="/api/v1")
 
 
 @app.get("/")

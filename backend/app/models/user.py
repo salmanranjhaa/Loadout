@@ -10,6 +10,7 @@ class User(Base):
     username = Column(String(50), unique=True, nullable=False)
     email = Column(String(255), unique=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
+    role = Column(String(20), nullable=False, default="user", server_default="user")
     
     # I store physical stats for calorie/macro calculations
     current_weight_kg = Column(Float, default=98.6)
