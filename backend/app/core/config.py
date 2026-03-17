@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     # Google Cloud
     GCP_PROJECT_ID: str = ""
     GCP_REGION: str = "europe-west6"
-    VERTEX_AI_MODEL: str = "gemini-2.5-flash"
+    VERTEX_AI_MODEL: str = "gemini-2.0-flash-001"
 
     # Embeddings — using local sentence-transformers, no API key needed
     EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"
