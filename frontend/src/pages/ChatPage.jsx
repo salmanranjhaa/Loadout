@@ -26,6 +26,16 @@ const QUICK_PROMPTS = [
 
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
+function inferTemplateExerciseType(exercise) {
+  const repsText = `${exercise?.reps ?? ""}`.trim().toLowerCase();
+  const hasWeight = exercise?.weight_suggestion_kg != null
+    && `${exercise.weight_suggestion_kg}`.trim() !== "";
+  if (/\b(sec|secs|second|seconds|min|mins|minute|minutes)\b/.test(repsText)) {
+    return "timed";
+  }
+  return hasWeight ? "weighted" : "bodyweight";
+}
+
 // I format basic markdown-style text from the AI into styled elements
 function FormattedText({ text }) {
   if (!text) return null;
@@ -340,32 +350,37 @@ function WorkoutTemplateCard({ data, onSave, onDismiss }) {
               {exercises.length === 0 && (
                 <p className="text-[11px] text-slate-500 text-center py-2">No exercises yet.</p>
               )}
-              {exercises.map((ex, i) => (
-                <div key={i} className="bg-slate-700/60 rounded-lg p-2 space-y-1.5">
-                  <div className="flex gap-1.5">
-                    <input value={ex.name} onChange={e => updateExercise(i, "name", e.target.value)}
-                      placeholder="Exercise name" className="flex-1 bg-slate-700 rounded px-2 py-1 text-[11px] text-slate-200 focus:outline-none" />
-                    <button onClick={() => removeExercise(i)} className="p-1 text-slate-600 hover:text-red-400"><Trash2 size={11} /></button>
+              {exercises.map((ex, i) => {
+                const exType = inferTemplateExerciseType(ex);
+                return (
+                  <div key={i} className="bg-slate-700/60 rounded-lg p-2 space-y-1.5">
+                    <div className="flex gap-1.5">
+                      <input value={ex.name} onChange={e => updateExercise(i, "name", e.target.value)}
+                        placeholder="Exercise name" className="flex-1 bg-slate-700 rounded px-2 py-1 text-[11px] text-slate-200 focus:outline-none" />
+                      <button onClick={() => removeExercise(i)} className="p-1 text-slate-600 hover:text-red-400"><Trash2 size={11} /></button>
+                    </div>
+                    <div className="flex gap-1.5">
+                      <div className="flex-1">
+                        <label className="text-[9px] text-slate-500">Sets</label>
+                        <input type="number" value={ex.sets ?? ""} onChange={e => updateExercise(i, "sets", e.target.value)}
+                          placeholder="3" min={1} className="w-full bg-slate-700 rounded px-2 py-0.5 text-[11px] text-slate-200 focus:outline-none" />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-[9px] text-slate-500">{exType === "timed" ? "Secs" : "Reps"}</label>
+                        <input value={ex.reps ?? ""} onChange={e => updateExercise(i, "reps", e.target.value)}
+                          placeholder={exType === "timed" ? "30" : "10"} className="w-full bg-slate-700 rounded px-2 py-0.5 text-[11px] text-slate-200 focus:outline-none" />
+                      </div>
+                      {exType === "weighted" && (
+                        <div className="flex-1">
+                          <label className="text-[9px] text-slate-500">kg</label>
+                          <input type="number" value={ex.weight_suggestion_kg ?? ""} onChange={e => updateExercise(i, "weight_suggestion_kg", e.target.value)}
+                            placeholder="BW" min={0} step={2.5} className="w-full bg-slate-700 rounded px-2 py-0.5 text-[11px] text-slate-200 focus:outline-none" />
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex gap-1.5">
-                    <div className="flex-1">
-                      <label className="text-[9px] text-slate-500">Sets</label>
-                      <input type="number" value={ex.sets ?? ""} onChange={e => updateExercise(i, "sets", e.target.value)}
-                        placeholder="3" min={1} className="w-full bg-slate-700 rounded px-2 py-0.5 text-[11px] text-slate-200 focus:outline-none" />
-                    </div>
-                    <div className="flex-1">
-                      <label className="text-[9px] text-slate-500">Reps</label>
-                      <input value={ex.reps ?? ""} onChange={e => updateExercise(i, "reps", e.target.value)}
-                        placeholder="10" className="w-full bg-slate-700 rounded px-2 py-0.5 text-[11px] text-slate-200 focus:outline-none" />
-                    </div>
-                    <div className="flex-1">
-                      <label className="text-[9px] text-slate-500">kg</label>
-                      <input type="number" value={ex.weight_suggestion_kg ?? ""} onChange={e => updateExercise(i, "weight_suggestion_kg", e.target.value)}
-                        placeholder="BW" min={0} step={2.5} className="w-full bg-slate-700 rounded px-2 py-0.5 text-[11px] text-slate-200 focus:outline-none" />
-                    </div>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               <button onClick={addExercise} className="w-full py-1.5 text-[10px] text-slate-500 border border-dashed border-slate-700 rounded-lg hover:border-teal-700 hover:text-teal-400 flex items-center justify-center gap-1">
                 <Plus size={10} /> Add exercise
               </button>

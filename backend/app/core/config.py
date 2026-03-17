@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     GCP_PROJECT_ID: str = ""
     GCP_REGION: str = "europe-west6"
     VERTEX_AI_MODEL: str = "gemini-2.0-flash-001"
+    # Comma-separated fallback candidates tried if the primary model/region fails.
+    VERTEX_AI_MODEL_FALLBACKS: str = "gemini-2.5-flash,gemini-1.5-flash"
+    VERTEX_AI_FALLBACK_REGIONS: str = "us-central1"
 
     # Embeddings — using local sentence-transformers, no API key needed
     EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"

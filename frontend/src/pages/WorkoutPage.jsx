@@ -124,6 +124,20 @@ const EXERCISE_LIBRARY = [
   { id: "kettlebell_swing", name: "KB Swing", muscle: "Full Body", emoji: "🔔", exType: "weighted" },
 ];
 
+function getExerciseTypeByName(name, weightSuggestionKg = null) {
+  const normalized = (name || "").trim().toLowerCase();
+  if (normalized) {
+    const normalizedId = normalized.replace(/\s+/g, "_");
+    const match = EXERCISE_LIBRARY.find(
+      lib => lib.name.trim().toLowerCase() === normalized || lib.id === normalizedId
+    );
+    if (match?.exType) return match.exType;
+  }
+  return weightSuggestionKg != null && `${weightSuggestionKg}`.trim() !== ""
+    ? "weighted"
+    : "bodyweight";
+}
+
 // ─── Shared history item ─────────────────────────────────────────────────────
 
 function WorkoutHistoryItem({ w, onDelete }) {
@@ -1170,8 +1184,7 @@ function TemplatesTab({ onStartWorkout }) {
           <div className="space-y-2">
             <p className="text-[10px] text-slate-500 uppercase tracking-wider">Exercises</p>
             {newT.exercises.map((ex, i) => {
-              const exLib = EXERCISE_LIBRARY.find(lib => lib.name === ex.name);
-              const exType = exLib?.exType || "weighted";
+              const exType = getExerciseTypeByName(ex.name, ex.weight_suggestion_kg);
               return (
               <div key={i} className="bg-slate-800/60 rounded-lg p-2 space-y-1.5">
                 <div className="flex gap-1.5">
@@ -1275,8 +1288,7 @@ function TemplatesTab({ onStartWorkout }) {
               <div className="space-y-1.5">
                 <p className="text-[10px] text-slate-500 uppercase tracking-wider">Exercises</p>
                 {editForm.exercises.map((ex, i) => {
-                  const exLib = EXERCISE_LIBRARY.find(lib => lib.name === ex.name);
-                  const exType = exLib?.exType || (ex.weight_suggestion_kg != null ? "weighted" : "weighted");
+                  const exType = getExerciseTypeByName(ex.name, ex.weight_suggestion_kg);
                   return (
                   <div key={i} className="bg-slate-800/60 rounded-lg p-2 space-y-1">
                     <div className="flex gap-1.5">
