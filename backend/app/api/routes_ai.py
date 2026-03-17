@@ -97,7 +97,7 @@ async def ai_chat(
     schedule_events = schedule_result.scalars().all()
     if schedule_events:
         sched_lines = "\n".join([
-            f"  {(e.start_time or '')[:5]}-{(e.end_time or '')[:5]}: {e.title} ({e.event_type})"
+            f"  {str(e.start_time or '')[:5]}-{str(e.end_time or '')[:5]}: {e.title} ({e.event_type})"
             + (f" @ {e.location}" if e.location else "")
             for e in schedule_events
         ])
