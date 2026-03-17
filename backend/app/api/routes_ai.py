@@ -115,8 +115,18 @@ async def ai_chat(
     recent_workouts = recent_workouts_result.scalars().all()
     if recent_workouts:
         workout_lines = "\n".join([
+            # workout model stores estimated calories in `calories_burned_est`
+            # (older code referenced `calories_burned`, which crashes chat context injection)
             f"  {w.date}: {w.workout_type} {w.duration_minutes}min, {w.intensity} intensity"
-            + (f", ~{w.calories_burned} kcal burned" if w.calories_burned else "")
+            + (
+                f", ~{calories_val} kcal burned"
+                if (calories_val := (
+                    w.calories_burned_est
+                    if w.calories_burned_est is not None
+                    else getattr(w, "calories_burned", None)
+                )) is not None
+                else ""
+            )
             + (f", energy {w.energy_level}/5" if w.energy_level else "")
             for w in recent_workouts
         ])

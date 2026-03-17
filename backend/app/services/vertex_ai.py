@@ -172,6 +172,73 @@ def _strip_code_fences(text: str) -> str:
     return text
 
 
+def _extract_json_payload(text: str) -> str:
+    """I extract the most likely JSON object/array payload from model output."""
+    cleaned = _repair_json(_strip_code_fences((text or "").strip()))
+    if not cleaned:
+        return ""
+
+    if (cleaned.startswith("{") and cleaned.endswith("}")) or (
+        cleaned.startswith("[") and cleaned.endswith("]")
+    ):
+        return cleaned
+
+    obj_start = cleaned.find("{")
+    obj_end = cleaned.rfind("}")
+    if obj_start != -1 and obj_end != -1 and obj_end > obj_start:
+        return cleaned[obj_start:obj_end + 1]
+
+    arr_start = cleaned.find("[")
+    arr_end = cleaned.rfind("]")
+    if arr_start != -1 and arr_end != -1 and arr_end > arr_start:
+        return cleaned[arr_start:arr_end + 1]
+
+    return cleaned
+
+
+def _parse_json_dict(text: str) -> dict:
+    """I parse model text into a JSON object, tolerating wrappers/noise."""
+    payload = _extract_json_payload(text)
+    if not payload:
+        raise ValueError("Empty model response")
+    parsed = json.loads(payload)
+    if not isinstance(parsed, dict):
+        raise ValueError("Expected a JSON object")
+    return parsed
+
+
+def _as_int(value, default: int) -> int:
+    try:
+        if value is None or value == "":
+            return default
+        return int(round(float(value)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _response_text(response) -> str:
+    """I read model text from response.text, with candidate-part fallback."""
+    direct = getattr(response, "text", None)
+    if direct:
+        return direct.strip()
+
+    try:
+        for candidate in getattr(response, "candidates", []) or []:
+            content = getattr(candidate, "content", None)
+            parts = getattr(content, "parts", None) or []
+            merged = "".join([
+                (getattr(part, "text", "") or "")
+                for part in parts
+                if getattr(part, "text", None)
+            ]).strip()
+            if merged:
+                return merged
+    except Exception:
+        pass
+
+    return ""
+
+
 _WORKOUT_METS = {
     "crossfit": 8.0, "running": 8.3, "football": 7.0,
     "yoga": 3.0, "cycling": 7.5, "stretch": 2.5,
@@ -260,7 +327,7 @@ async def chat_with_ai(
             "structured_data": None,
         }
 
-    response_text = (response.text or "").strip()
+    response_text = _response_text(response)
     if not response_text:
         return {
             "text": "I couldn't generate a response right now. Please retry in a moment.",
@@ -294,15 +361,17 @@ async def analyze_workout(
 ) -> dict:
     """I use Gemini to analyze a workout and return calories, impact, recovery recommendations."""
     weight = user_profile.get("current_weight_kg", 98.6)
+    fallback = _fallback_workout_analysis(
+        workout_type=workout_type,
+        duration_minutes=duration_minutes,
+        intensity=intensity,
+        weight_kg=weight,
+        note="Used estimated values.",
+    )
 
     if not settings.GCP_PROJECT_ID:
-        return _fallback_workout_analysis(
-            workout_type=workout_type,
-            duration_minutes=duration_minutes,
-            intensity=intensity,
-            weight_kg=weight,
-            note="GCP not configured; used estimated values.",
-        )
+        fallback["notes"] = "GCP not configured; used estimated values."
+        return fallback
 
     prompt = f"""Analyze this workout. Respond ONLY with valid JSON, no other text.
 
@@ -322,39 +391,42 @@ Respond with exactly this JSON structure:
 }}"""
 
     try:
-        response = await generate_content_with_fallback(
-            contents=prompt,
-            preferred_model=settings.VERTEX_AI_MODEL,
-            config=types.GenerateContentConfig(temperature=0.3, max_output_tokens=512),
-        )
-        text = _repair_json(_strip_code_fences((response.text or "").strip()))
-        parsed = json.loads(text)
-        fallback = _fallback_workout_analysis(
-            workout_type=workout_type,
-            duration_minutes=duration_minutes,
-            intensity=intensity,
-            weight_kg=weight,
-            note="Used estimated values.",
-        )
+        async def _run_analysis(run_prompt: str) -> dict:
+            response = await generate_content_with_fallback(
+                contents=run_prompt,
+                preferred_model=settings.VERTEX_AI_MODEL,
+                config=types.GenerateContentConfig(
+                    temperature=0.1,
+                    max_output_tokens=512,
+                    response_mime_type="application/json",
+                ),
+            )
+            return _parse_json_dict(_response_text(response))
+
+        try:
+            parsed = await _run_analysis(prompt)
+        except Exception as first_error:
+            logger.warning("Workout analysis parse failed once; retrying strict JSON: %s", first_error)
+            strict_prompt = (
+                prompt
+                + "\nReturn ONLY a single JSON object on one line, no markdown fences, no prose."
+            )
+            parsed = await _run_analysis(strict_prompt)
+
         muscle_groups = parsed.get("muscle_groups") if isinstance(parsed.get("muscle_groups"), list) else []
         return {
-            "calories_burned": parsed.get("calories_burned", fallback["calories_burned"]),
-            "intensity_score": parsed.get("intensity_score", fallback["intensity_score"]),
+            "calories_burned": _as_int(parsed.get("calories_burned"), fallback["calories_burned"]),
+            "intensity_score": max(1, min(10, _as_int(parsed.get("intensity_score"), fallback["intensity_score"]))),
             "muscle_groups": muscle_groups,
             "cardio_impact": parsed.get("cardio_impact", fallback["cardio_impact"]),
-            "recovery_hours": parsed.get("recovery_hours", fallback["recovery_hours"]),
+            "recovery_hours": max(0, _as_int(parsed.get("recovery_hours"), fallback["recovery_hours"])),
             "notes": parsed.get("notes", fallback["notes"]),
             "weekly_impact": parsed.get("weekly_impact", fallback["weekly_impact"]),
         }
     except Exception as e:
         logger.error(f"Workout analysis failed: {e}")
-        return _fallback_workout_analysis(
-            workout_type=workout_type,
-            duration_minutes=duration_minutes,
-            intensity=intensity,
-            weight_kg=weight,
-            note="AI analysis unavailable; used estimated calories.",
-        )
+        fallback["notes"] = "AI analysis unavailable; used estimated calories."
+        return fallback
 
 
 async def calculate_macros_from_description(food_description: str) -> dict:
@@ -379,7 +451,8 @@ async def calculate_macros_from_description(food_description: str) -> dict:
             config=types.GenerateContentConfig(temperature=0.0, max_output_tokens=2048),
         )
         # I guard against None/empty response (safety filter, quota, or empty candidates)
-        if not response.text:
+        text = _response_text(response)
+        if not text:
             logger.error("Gemini returned empty/None text for macro estimation")
             return {"error": "Could not parse nutritional data"}
         # I also log finish_reason when available to diagnose truncations
@@ -389,7 +462,6 @@ async def calculate_macros_from_description(food_description: str) -> dict:
                 logger.warning(f"Macro estimation finish_reason={finish}")
         except Exception:
             pass
-        text = response.text.strip()
         text = _strip_code_fences(text)
         text = _repair_json(text)
         return json.loads(text)
