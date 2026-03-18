@@ -1,5 +1,5 @@
 /**
- * generate_icons.mjs — LifePlan app icon generator (pure Node.js, no dependencies)
+ * generate_icons.mjs — Loadout app icon generator (pure Node.js, no dependencies)
  *
  * Generates Android launcher PNGs at all required densities.
  * Run from project root:
@@ -329,7 +329,7 @@ function savePNG(pixels, width, height, filePath) {
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────
-console.log("LifePlan Icon Generator");
+console.log("Loadout Icon Generator");
 console.log("=".repeat(50));
 
 console.log("\nGenerating launcher icons...");
@@ -346,3 +346,4 @@ const fgPixels = renderForeground(256); // 256 is enough for foreground layer
 savePNG(fgPixels, 256, 256, join(RES, "drawable", "ic_launcher_foreground.png"));
 
 console.log("\nDone.");
+

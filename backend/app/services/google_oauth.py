@@ -132,7 +132,7 @@ def build_popup_response_html(payload: dict, origin: str | None) -> str:
     safe_origin = json.dumps(origin or "*")
     return f"""<!doctype html>
 <html>
-  <head><meta charset="utf-8"><title>LifePlan Google Auth</title></head>
+  <head><meta charset="utf-8"><title>Loadout Google Auth</title></head>
   <body style="font-family: sans-serif; padding: 24px; background: #0f172a; color: #e2e8f0;">
     <p id="msg">Finishing Google authentication...</p>
     <script>
@@ -155,4 +155,3 @@ def build_popup_response_html(payload: dict, origin: str | None) -> str:
     </script>
   </body>
 </html>"""
-

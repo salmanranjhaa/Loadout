@@ -1,5 +1,5 @@
 """
-generate_icons.py — LifePlan app icon generator
+generate_icons.py — Loadout app icon generator
 
 Generates Android launcher PNGs at all required densities using Pillow.
 No SVG renderer required — the icon is drawn directly via PIL drawing primitives.
@@ -245,7 +245,7 @@ def save_png(img, path):
 # Main
 # ---------------------------------------------------------------------------
 def main():
-    print("LifePlan Icon Generator")
+    print("Loadout Icon Generator")
     print("=" * 50)
 
     # ── Launcher icons (square, all densities) ─────────────────────────────
@@ -266,3 +266,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

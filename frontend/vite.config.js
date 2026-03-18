@@ -8,8 +8,8 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       manifest: {
-        name: "LifePlan",
-        short_name: "LifePlan",
+        name: "Loadout",
+        short_name: "Loadout",
         description: "Weekly routine, nutrition, and fitness tracker",
         theme_color: "#0c0f14",
         background_color: "#0c0f14",

@@ -1,6 +1,6 @@
 {
   "appId": "com.antigravity.lifeplan",
-  "appName": "LifePlan",
+  "appName": "Loadout",
   "webDir": "dist",
   "android": {
     "allowMixedContent": true

@@ -60,7 +60,7 @@ export default function LoginPage({ onLogin }) {
         <div className="text-center mb-8">
           <div className="flex items-center justify-center gap-2 mb-2">
             <Sparkles size={28} className="text-accent-green" />
-            <h1 className="text-2xl font-bold text-white">LifePlan</h1>
+            <h1 className="text-2xl font-bold text-white">Loadout</h1>
           </div>
           <p className="text-slate-500 text-sm">Your personal routine and nutrition assistant</p>
         </div>

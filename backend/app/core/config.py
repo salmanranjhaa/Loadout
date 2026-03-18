@@ -3,7 +3,7 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    APP_NAME: str = "LifePlan"
+    APP_NAME: str = "Loadout"
     DEBUG: bool = False
 
     # Database
