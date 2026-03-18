@@ -1,12 +1,17 @@
 import json
 import re
 import logging
+import os
+import asyncio
+import httpx
 from google import genai
 from google.genai import types
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+if settings.GCP_PROJECT_ID:
+    os.environ.setdefault("GOOGLE_CLOUD_PROJECT", settings.GCP_PROJECT_ID)
 
 _clients: dict[str, genai.Client] = {}
 
@@ -34,6 +39,10 @@ def _candidate_models(preferred_model: str | None = None) -> list[str]:
     return _unique([base, *_csv_values(settings.VERTEX_AI_MODEL_FALLBACKS)])
 
 
+def _candidate_groq_models() -> list[str]:
+    return _unique([settings.GROQ_MODEL, *_csv_values(settings.GROQ_MODEL_FALLBACKS)])
+
+
 def get_client(location: str | None = None) -> genai.Client:
     """I lazily create a Vertex AI client per region using ADC."""
     region = location or settings.GCP_REGION
@@ -44,6 +53,173 @@ def get_client(location: str | None = None) -> genai.Client:
             location=region,
         )
     return _clients[region]
+
+
+class _TextOnlyResponse:
+    """I normalize non-Vertex text responses to match the response interface used below."""
+
+    def __init__(self, text: str):
+        self.text = text
+        self.candidates = []
+
+
+def _config_value(config, key: str, default=None):
+    try:
+        value = getattr(config, key)
+    except Exception:
+        return default
+    return default if value is None else value
+
+
+def _normalize_message_role(role: str | None) -> str:
+    role = (role or "user").lower()
+    if role == "model":
+        return "assistant"
+    if role in {"assistant", "system", "user", "tool"}:
+        return role
+    return "user"
+
+
+def _part_to_text(part) -> str:
+    if part is None:
+        return ""
+    text = getattr(part, "text", None)
+    if text:
+        return str(text)
+    if isinstance(part, dict):
+        if isinstance(part.get("text"), str):
+            return part["text"]
+        if isinstance(part.get("content"), str):
+            return part["content"]
+    return ""
+
+
+def _parts_to_text(parts) -> str:
+    merged = "".join(_part_to_text(part) for part in (parts or []))
+    return merged.strip()
+
+
+def _content_to_message(content) -> dict | None:
+    if isinstance(content, str):
+        return {"role": "user", "content": content}
+
+    if isinstance(content, dict):
+        role = _normalize_message_role(content.get("role"))
+        text = content.get("content")
+        if isinstance(text, list):
+            text = " ".join(str(v) for v in text if v is not None)
+        if not isinstance(text, str):
+            text = ""
+        text = text.strip()
+        if not text:
+            return None
+        return {"role": role, "content": text}
+
+    role = _normalize_message_role(getattr(content, "role", "user"))
+    parts = getattr(content, "parts", None)
+    text = _parts_to_text(parts)
+    if not text:
+        text = str(content or "").strip()
+    if not text:
+        return None
+    return {"role": role, "content": text}
+
+
+def _system_instruction_text(config) -> str:
+    system_instruction = _config_value(config, "system_instruction")
+    if not system_instruction:
+        return ""
+    if isinstance(system_instruction, str):
+        return system_instruction.strip()
+    if isinstance(system_instruction, dict):
+        value = system_instruction.get("text") or system_instruction.get("content") or ""
+        return str(value).strip()
+    parts = getattr(system_instruction, "parts", None)
+    if parts is not None:
+        return _parts_to_text(parts)
+    return str(system_instruction).strip()
+
+
+def _to_groq_messages(contents, config) -> list[dict]:
+    messages: list[dict] = []
+    system_text = _system_instruction_text(config)
+    if system_text:
+        messages.append({"role": "system", "content": system_text})
+
+    if isinstance(contents, list):
+        for item in contents:
+            msg = _content_to_message(item)
+            if msg:
+                messages.append(msg)
+    else:
+        msg = _content_to_message(contents)
+        if msg:
+            messages.append(msg)
+
+    if not messages:
+        messages.append({"role": "user", "content": ""})
+    return messages
+
+
+async def _generate_content_groq(
+    contents,
+    config: types.GenerateContentConfig,
+    model_name: str,
+):
+    base_url = (settings.GROQ_BASE_URL or "").strip().rstrip("/")
+    if not base_url:
+        raise RuntimeError("GROQ_BASE_URL is not configured")
+
+    api_key = (settings.GROQ_API_KEY or "").strip()
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY is not configured")
+
+    payload = {
+        "model": model_name,
+        "messages": _to_groq_messages(contents, config),
+        "temperature": _config_value(config, "temperature", 0.7),
+        "stream": False,
+    }
+
+    max_output_tokens = _config_value(config, "max_output_tokens")
+    if max_output_tokens:
+        payload["max_completion_tokens"] = int(max_output_tokens)
+
+    top_p = _config_value(config, "top_p")
+    if top_p is not None:
+        payload["top_p"] = top_p
+
+    response = None
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            response = await client.post(
+                f"{base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+    except Exception as e:
+        raise RuntimeError(f"Groq request failed: {e}") from e
+
+    if response.status_code >= 400:
+        body = response.text[:220].replace("\n", " ")
+        raise RuntimeError(f"Groq HTTP {response.status_code}: {body}")
+
+    try:
+        data = response.json()
+    except Exception as e:
+        raise RuntimeError(f"Groq JSON decode failed: {e}") from e
+
+    text = (
+        (
+            (data.get("choices") or [{}])[0].get("message", {}) or {}
+        ).get("content", "")
+    ).strip()
+    if not text:
+        raise RuntimeError("Groq returned empty text")
+    return _TextOnlyResponse(text=text)
 
 
 async def generate_content_with_fallback(
@@ -59,27 +235,60 @@ async def generate_content_with_fallback(
     for region in regions:
         client = get_client(region)
         for model_name in models:
-            try:
-                response = await client.aio.models.generate_content(
-                    model=model_name,
-                    contents=contents,
-                    config=config,
-                )
-                if region != settings.GCP_REGION or model_name != (preferred_model or settings.VERTEX_AI_MODEL):
+            for attempt in (1, 2):
+                try:
+                    response = await client.aio.models.generate_content(
+                        model=model_name,
+                        contents=contents,
+                        config=config,
+                    )
+                    if region != settings.GCP_REGION or model_name != (preferred_model or settings.VERTEX_AI_MODEL):
+                        logger.warning(
+                            "Vertex AI fallback succeeded with model=%s region=%s",
+                            model_name,
+                            region,
+                        )
+                    return response
+                except Exception as e:
+                    err = str(e)
+                    is_quota = ("RESOURCE_EXHAUSTED" in err) or ("429" in err)
+                    if is_quota and attempt == 1:
+                        # brief retry for bursty quota throttling
+                        await asyncio.sleep(1.5)
+                        continue
                     logger.warning(
-                        "Vertex AI fallback succeeded with model=%s region=%s",
+                        "Vertex AI generate failed model=%s region=%s error=%s",
                         model_name,
                         region,
+                        e,
                     )
-                return response
-            except Exception as e:
-                logger.warning(
-                    "Vertex AI generate failed model=%s region=%s error=%s",
-                    model_name,
-                    region,
-                    e,
-                )
-                errors.append(f"{region}/{model_name}: {type(e).__name__}")
+                    errors.append(f"{region}/{model_name}: {type(e).__name__}")
+                    break
+
+    groq_enabled = settings.ENABLE_GROQ_FALLBACK and bool((settings.GROQ_API_KEY or "").strip())
+    if groq_enabled:
+        for model_name in _candidate_groq_models():
+            for attempt in (1, 2):
+                try:
+                    response = await _generate_content_groq(
+                        contents=contents,
+                        config=config,
+                        model_name=model_name,
+                    )
+                    logger.warning(
+                        "LLM fallback succeeded with provider=groq model=%s",
+                        model_name,
+                    )
+                    return response
+                except Exception as e:
+                    err = str(e)
+                    is_quota = ("RESOURCE_EXHAUSTED" in err) or ("429" in err)
+                    if is_quota and attempt == 1:
+                        await asyncio.sleep(1.5)
+                        continue
+                    logger.warning("Groq generate failed model=%s error=%s", model_name, e)
+                    errors.append(f"groq/{model_name}: {type(e).__name__}")
+                    break
 
     attempts = ", ".join(errors[:6])
     raise RuntimeError(
@@ -333,33 +542,51 @@ def _estimate_calories_with_details(
 
 
 def _estimate_intensity_score(
+    workout_type: str,
     duration_minutes: int,
     intensity: str,
     details: dict | None = None,
 ) -> int:
     details = details or {}
-    score = {"low": 4, "moderate": 6, "high": 8}.get((intensity or "moderate").lower(), 6)
+    wt = (workout_type or "").lower()
+    score = {"low": 3, "moderate": 5, "high": 7}.get((intensity or "moderate").lower(), 5)
 
     avg_hr = _as_float(details.get("avg_hr_bpm"))
     if avg_hr:
         if avg_hr >= 170:
             score += 2
-        elif avg_hr >= 155:
+        elif avg_hr >= 150:
             score += 1
-        elif avg_hr <= 120:
+        elif avg_hr <= 115:
             score -= 1
 
-    if duration_minutes >= 90:
+    if duration_minutes >= 120:
+        score += 2
+    elif duration_minutes >= 75:
         score += 1
-    elif duration_minutes <= 20:
+    elif duration_minutes <= 25:
         score -= 1
+
+    if wt in {"crossfit", "hiit", "football", "boxing"}:
+        score += 1
+
+    if wt == "running":
+        pace = _as_float(details.get("avg_pace_min_km"))
+        if pace:
+            if pace <= 5.0:
+                score += 1
+            elif pace >= 6.7:
+                score -= 1
 
     return max(1, min(10, int(round(score))))
 
 
-def _estimate_recovery_hours(duration_minutes: int, intensity_score: int) -> int:
-    hours = 8 + (intensity_score * 2.8) + (max(duration_minutes - 30, 0) * 0.18)
-    return int(max(8, min(72, round(hours))))
+def _estimate_recovery_hours(workout_type: str, duration_minutes: int, intensity_score: int) -> int:
+    wt = (workout_type or "").lower()
+    hours = 6 + (intensity_score * 1.8) + (max(duration_minutes - 30, 0) * 0.12)
+    if wt in {"crossfit", "hiit", "football", "boxing"}:
+        hours += 2
+    return int(max(8, min(60, round(hours))))
 
 
 def _fallback_workout_analysis(
@@ -373,8 +600,8 @@ def _fallback_workout_analysis(
 ) -> dict:
     wt = (workout_type or "").lower()
     calories, basis = _estimate_calories_with_details(wt, duration_minutes, weight_kg, details)
-    intensity_score = _estimate_intensity_score(duration_minutes, intensity, details)
-    recovery_hours = _estimate_recovery_hours(duration_minutes, intensity_score)
+    intensity_score = _estimate_intensity_score(wt, duration_minutes, intensity, details)
+    recovery_hours = _estimate_recovery_hours(wt, duration_minutes, intensity_score)
     if intensity_score >= 8:
         cardio_impact = "high"
     elif intensity_score >= 5:
@@ -562,8 +789,16 @@ Respond with exactly this JSON structure:
         }
     except Exception as e:
         logger.error(f"Workout analysis failed: {e}")
-        fallback["notes"] = "AI analysis unavailable; using metric-based estimate."
-        fallback["analysis_error"] = str(e)[:180]
+        err = str(e)
+        is_quota = ("RESOURCE_EXHAUSTED" in err) or ("429" in err)
+        if is_quota:
+            fallback["notes"] = "AI quota exhausted right now; using metric-based estimate."
+            fallback["weekly_impact"] = "Estimated load used because Vertex quota is temporarily exhausted."
+            fallback["analysis_error_type"] = "quota_exhausted"
+        else:
+            fallback["notes"] = "AI analysis unavailable; using metric-based estimate."
+            fallback["analysis_error_type"] = "analysis_unavailable"
+        fallback["analysis_error"] = err[:180]
         return fallback
 
 

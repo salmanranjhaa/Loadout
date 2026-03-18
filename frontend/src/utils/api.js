@@ -182,13 +182,7 @@ export function runGoogleAuthPopup(authUrl, expectedMode, timeoutMs = 120000) {
     return Promise.reject(new Error("Popup blocked. Please allow popups and try again."));
   }
 
-  const backendOrigin = (() => {
-    try {
-      return new URL(authUrl).origin;
-    } catch {
-      return getApiOrigin();
-    }
-  })();
+  const backendOrigin = getApiOrigin();
 
   return new Promise((resolve, reject) => {
     let done = false;
