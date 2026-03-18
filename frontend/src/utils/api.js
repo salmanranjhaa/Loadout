@@ -183,6 +183,24 @@ export function runGoogleAuthPopup(authUrl, expectedMode, timeoutMs = 120000) {
   }
 
   const backendOrigin = getApiOrigin();
+  const allowedOrigins = new Set([backendOrigin, window.location.origin]);
+  try {
+    const authUrlObj = new URL(authUrl);
+    const redirectUri = authUrlObj.searchParams.get("redirect_uri");
+    if (redirectUri) allowedOrigins.add(new URL(redirectUri).origin);
+  } catch {
+    // Ignore parse issues and keep fallback origins only.
+  }
+  // Allow www/non-www variants to avoid popup-origin mismatch when one domain is canonical.
+  for (const origin of Array.from(allowedOrigins)) {
+    try {
+      const u = new URL(origin);
+      const altHost = u.hostname.startsWith("www.") ? u.hostname.slice(4) : `www.${u.hostname}`;
+      allowedOrigins.add(`${u.protocol}//${altHost}${u.port ? `:${u.port}` : ""}`);
+    } catch {
+      // Ignore malformed origins.
+    }
+  }
 
   return new Promise((resolve, reject) => {
     let done = false;
@@ -199,7 +217,7 @@ export function runGoogleAuthPopup(authUrl, expectedMode, timeoutMs = 120000) {
       fn(value);
     };
     const onMessage = (event) => {
-      if (event.origin !== backendOrigin) return;
+      if (!allowedOrigins.has(event.origin)) return;
       if (!event.data || event.data.type !== "lifeplan_google_auth") return;
       const payload = event.data.payload || {};
       if (expectedMode && payload.mode !== expectedMode) return;
