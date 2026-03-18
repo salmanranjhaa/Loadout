@@ -164,6 +164,8 @@ export default function SchedulePage() {
   const selectedDate = new Date(currentWeekMonday);
   selectedDate.setDate(currentWeekMonday.getDate() + selectedDay);
   const selectedDateISO = toISODate(selectedDate);
+  const hasCalendarAccess = !!googleStatus.connected;
+  const googleAccountLinked = !!googleStatus.account_linked || hasCalendarAccess;
 
   useEffect(() => {
     async function load() {
@@ -283,13 +285,15 @@ export default function SchedulePage() {
             {DAY_FULL[selectedDay]} • {selectedDateISO}
           </p>
           <p className="text-[10px] text-slate-600 mt-1">
-            {googleStatus.connected
-              ? `Google linked${googleStatus.google_email ? `: ${googleStatus.google_email}` : ""}`
-              : "Google Calendar not connected"}
+            {hasCalendarAccess
+              ? `Google Calendar linked${googleStatus.google_email ? `: ${googleStatus.google_email}` : ""}`
+              : googleAccountLinked
+                ? `Google linked${googleStatus.google_email ? `: ${googleStatus.google_email}` : ""} (calendar permission needed)`
+                : "Google Calendar not connected"}
           </p>
         </div>
         <div className="flex flex-col gap-2 mt-1">
-          {googleStatus.connected ? (
+          {hasCalendarAccess ? (
             <button
               onClick={syncGoogleCalendar}
               disabled={googleSyncing}

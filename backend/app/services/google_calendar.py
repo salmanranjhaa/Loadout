@@ -9,6 +9,8 @@ from app.services.google_oauth import refresh_google_access_token
 
 
 GOOGLE_EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+CALENDAR_READONLY_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
+CALENDAR_FULL_SCOPE = "https://www.googleapis.com/auth/calendar"
 
 
 def _parse_google_datetime(raw: str) -> datetime:
@@ -34,6 +36,17 @@ def _event_type_from_summary(summary: str | None) -> EventType:
     if any(k in text for k in ["chess", "party", "hangout", "social"]):
         return EventType.SOCIAL
     return EventType.ROUTINE
+
+
+def _scope_set(raw_scopes: str | None) -> set[str]:
+    if not raw_scopes:
+        return set()
+    return {part.strip() for part in raw_scopes.replace(",", " ").split() if part.strip()}
+
+
+def _has_calendar_scope(raw_scopes: str | None) -> bool:
+    scopes = _scope_set(raw_scopes)
+    return CALENDAR_READONLY_SCOPE in scopes or CALENDAR_FULL_SCOPE in scopes
 
 
 async def _ensure_access_token(db: AsyncSession, token_row: GoogleOAuthToken) -> str:
@@ -141,9 +154,12 @@ async def get_google_calendar_status(db: AsyncSession, user_id: int) -> dict:
     result = await db.execute(select(GoogleOAuthToken).where(GoogleOAuthToken.user_id == user_id))
     token_row = result.scalar_one_or_none()
     if not token_row:
-        return {"connected": False}
+        return {"connected": False, "account_linked": False, "calendar_access": False}
+    calendar_access = _has_calendar_scope(token_row.scopes)
     return {
-        "connected": True,
+        "connected": calendar_access,
+        "account_linked": True,
+        "calendar_access": calendar_access,
         "google_email": token_row.google_email,
         "last_sync_at": token_row.last_sync_at.isoformat() if token_row.last_sync_at else None,
         "token_expiry": token_row.token_expiry.isoformat() if token_row.token_expiry else None,
@@ -162,6 +178,8 @@ async def sync_google_calendar(
     token_row = token_result.scalar_one_or_none()
     if not token_row:
         raise RuntimeError("Google Calendar is not connected for this account.")
+    if not _has_calendar_scope(token_row.scopes):
+        raise RuntimeError("Google Calendar permission missing. Click Connect Google to grant calendar access.")
 
     access_token = await _ensure_access_token(db, token_row)
     now = datetime.now(timezone.utc)
@@ -266,4 +284,3 @@ async def sync_google_calendar(
             "to": time_max.isoformat(),
         },
     }
-
