@@ -12,55 +12,52 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     role = Column(String(20), nullable=False, default="user", server_default="user")
     google_sub = Column(String(128), unique=True, nullable=True, index=True)
-    
-    # I store physical stats for calorie/macro calculations
-    current_weight_kg = Column(Float, default=98.6)
-    target_weight_kg = Column(Float, default=81.0)
-    height_cm = Column(Float, default=175.0)  # 5'9"
-    age = Column(Integer, default=28)
-    
-    # I store dietary preferences as JSON for flexibility
+
+    # I keep physical stats nullable until a user explicitly sets them.
+    current_weight_kg = Column(Float, nullable=True)
+    target_weight_kg = Column(Float, nullable=True)
+    height_cm = Column(Float, nullable=True)
+    age = Column(Integer, nullable=True)
+    gender = Column(String(32), nullable=True)
+
+    # I store dietary preferences as JSON for flexibility.
     dietary_preferences = Column(JSON, default=lambda: {
-        "halal": True,
-        "disliked_foods": ["rucola"],
-        "preferred_foods": ["lettuce", "cucumber", "feta", "chicken", "eggs", "daal", "rice"],
-        "cooking_style": "simple",
-        "oil_free_daal": True,
+        "dietary_pattern": None,
+        "allergies": [],
+        "disliked_foods": [],
+        "preferred_foods": [],
+        "notes": "",
     })
-    
-    # I store the daily targets here so the AI can update them
-    daily_calorie_target = Column(Integer, default=2100)
-    daily_protein_target = Column(Integer, default=190)
+
+    # I store daily macro targets and user-preferred currency.
+    daily_calorie_target = Column(Integer, nullable=True)
+    daily_protein_target = Column(Integer, nullable=True)
     daily_carb_target = Column(Integer, nullable=True)
     daily_fat_target = Column(Integer, nullable=True)
-    
-    # I store supplement schedule as JSON
+    preferred_currency = Column(String(8), nullable=False, default="CHF", server_default="CHF")
+
+    # I store supplement schedule as JSON.
     supplements = Column(JSON, default=lambda: {
-        "morning": ["apple cider vinegar", "magnesium", "multivitamin"],
-        "pre_workout": ["L-carnitine", "black coffee"],
-        "post_workout": ["whey protein 30g"],
-        "before_bed": ["magnesium"],
+        "morning": [],
+        "pre_workout": [],
+        "post_workout": [],
+        "before_bed": [],
     })
-    
-    # I store routine preferences that the RAG system can reference
+
+    # I store routine preferences that the RAG system can reference.
     routine_preferences = Column(JSON, default=lambda: {
-        "breakfast_after_workout": True,
-        "shower_buffer_minutes": 45,
-        "wind_down_minutes": 30,
-        "prep_overnight_oats_at_night": True,
-        "wake_up_weekday": "06:30",
-        "wake_up_weekend": "08:00",
-        "bedtime": "22:00",
+        "wake_up_weekday": None,
+        "wake_up_weekend": None,
+        "bedtime": None,
+        "notes": "",
     })
-    
-    # I store grocery preferences
+
+    # I store grocery preferences.
     grocery_stores = Column(JSON, default=lambda: {
-        "primary": ["Lidl", "Aldi", "Denner"],
-        "halal": "local halal store",
-        "supplements": "Migros",
-        "chicken_price": "16 CHF for 2kg boneless breast",
+        "primary": [],
+        "notes": "",
     })
-    
+
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

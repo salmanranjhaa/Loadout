@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { Sparkles } from "lucide-react";
-import { authAPI, runGoogleAuthPopup, setToken } from "../utils/api";
+import {
+  authAPI,
+  getGoogleOAuthOrigin,
+  isNativePlatform,
+  runGoogleAuthFlow,
+  setToken,
+} from "../utils/api";
 
 export default function LoginPage({ onLogin }) {
   const [mode, setMode] = useState("signin");
@@ -40,15 +46,17 @@ export default function LoginPage({ onLogin }) {
     setError("");
     setGoogleLoading(true);
     try {
-      const { auth_url } = await authAPI.getGoogleLoginUrl(window.location.origin);
-      const payload = await runGoogleAuthPopup(auth_url, "login");
+      const native = isNativePlatform();
+      const googleMode = mode === "signup" ? "signup" : "login";
+      const { auth_url } = await authAPI.getGoogleLoginUrl(getGoogleOAuthOrigin(), native, googleMode);
+      const payload = await runGoogleAuthFlow(auth_url, googleMode);
       if (!payload.access_token || !payload.refresh_token) {
-        throw new Error("Google login did not return app tokens");
+        throw new Error("Google authentication did not return app tokens");
       }
       setToken(payload.access_token, payload.refresh_token);
       onLogin();
     } catch (err) {
-      setError(err.message || "Google login failed");
+      setError(err.message || "Google authentication failed");
     } finally {
       setGoogleLoading(false);
     }
@@ -95,7 +103,7 @@ export default function LoginPage({ onLogin }) {
               type="text"
               value={username}
               onChange={e => setUsername(e.target.value)}
-              placeholder={mode === "signin" ? "salma or salma@email.com" : "choose a username"}
+              placeholder={mode === "signin" ? "username or email" : "choose a username"}
               autoComplete="username"
               className="w-full bg-slate-800/60 rounded-xl px-4 py-3 text-sm border border-slate-700 focus:border-accent-green focus:outline-none text-white"
             />

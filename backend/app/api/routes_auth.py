@@ -241,10 +241,12 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
 @router.get("/google/login-url", response_model=GoogleAuthUrlResponse)
 async def google_login_url(
     origin: str = Query(..., description="Frontend origin, e.g. https://app.example.com"),
+    native: bool = Query(False, description="Use native-app callback behavior"),
+    mode: str = Query("login", pattern="^(login|signup)$", description="Google auth mode: login or signup"),
 ):
     """I build a Google OAuth URL for sign-in with popup state binding to the frontend origin."""
     safe_origin = _validate_origin(origin)
-    state_token = encode_google_state(mode="login", origin=safe_origin)
+    state_token = encode_google_state(mode=mode, origin=safe_origin, native=native)
     auth_url = build_google_auth_url(state_token=state_token, scopes=GOOGLE_LOGIN_SCOPES)
     return GoogleAuthUrlResponse(auth_url=auth_url)
 
@@ -252,11 +254,17 @@ async def google_login_url(
 @router.get("/google/connect-url", response_model=GoogleAuthUrlResponse)
 async def google_connect_url(
     origin: str = Query(..., description="Frontend origin, e.g. https://app.example.com"),
+    native: bool = Query(False, description="Use native-app callback behavior"),
     auth_user: dict = Depends(get_current_user),
 ):
     """I build a Google OAuth URL for linking calendar access to an already-authenticated user."""
     safe_origin = _validate_origin(origin)
-    state_token = encode_google_state(mode="connect", origin=safe_origin, user_id=auth_user["sub"])
+    state_token = encode_google_state(
+        mode="connect",
+        origin=safe_origin,
+        user_id=auth_user["sub"],
+        native=native,
+    )
     auth_url = build_google_auth_url(state_token=state_token, scopes=GOOGLE_CONNECT_SCOPES)
     return GoogleAuthUrlResponse(auth_url=auth_url)
 
@@ -271,12 +279,15 @@ async def google_callback(
     """I handle Google OAuth callback and send result back to the opener window via postMessage."""
     origin = None
     mode = "unknown"
+    native_redirect_uri = None
     try:
         if not state:
             raise RuntimeError("Missing OAuth state")
         decoded_state = decode_google_state(state)
         origin = _validate_origin(decoded_state.get("origin", ""))
         mode = decoded_state.get("mode", "unknown")
+        native = bool(decoded_state.get("native"))
+        native_redirect_uri = settings.GOOGLE_NATIVE_REDIRECT_URI if native else None
 
         if error:
             raise RuntimeError(error)
@@ -305,16 +316,7 @@ async def google_callback(
                 user = by_email.scalar_one_or_none()
 
             if not user:
-                generated_username = await _generate_unique_username(db, google_email)
-                user = User(
-                    username=generated_username,
-                    email=google_email,
-                    hashed_password=hash_password(secrets.token_urlsafe(32)),
-                    role="user",
-                    is_active=True,
-                )
-                db.add(user)
-                await db.flush()
+                raise RuntimeError("No account found for this Google email. Please sign up first.")
 
             if not user.is_active:
                 raise RuntimeError("Account is disabled")
@@ -340,7 +342,51 @@ async def google_callback(
                 "username": app_tokens.username,
                 "role": app_tokens.role,
             }
-            return HTMLResponse(build_popup_response_html(payload, origin))
+            return HTMLResponse(build_popup_response_html(payload, origin, native_redirect_uri))
+
+        if mode == "signup":
+            existing_by_google = await db.execute(select(User).where(User.google_sub == google_sub))
+            user = existing_by_google.scalar_one_or_none()
+            if not user:
+                by_email = await db.execute(select(User).where(func.lower(User.email) == google_email.lower()))
+                user = by_email.scalar_one_or_none()
+
+            if user:
+                raise RuntimeError("Account already exists. Please sign in instead.")
+
+            generated_username = await _generate_unique_username(db, google_email)
+            user = User(
+                username=generated_username,
+                email=google_email,
+                hashed_password=hash_password(secrets.token_urlsafe(32)),
+                role="user",
+                is_active=True,
+                google_sub=google_sub,
+            )
+            db.add(user)
+            await db.flush()
+
+            await _upsert_google_token(
+                db,
+                user_id=user.id,
+                google_sub=google_sub,
+                google_email=google_email,
+                token_data=token_data,
+            )
+            await db.commit()
+            await db.refresh(user)
+
+            app_tokens = _token_response(user)
+            payload = {
+                "status": "success",
+                "mode": "signup",
+                "access_token": app_tokens.access_token,
+                "refresh_token": app_tokens.refresh_token,
+                "user_id": app_tokens.user_id,
+                "username": app_tokens.username,
+                "role": app_tokens.role,
+            }
+            return HTMLResponse(build_popup_response_html(payload, origin, native_redirect_uri))
 
         if mode == "connect":
             linked_user_id = decoded_state.get("user_id")
@@ -367,7 +413,7 @@ async def google_callback(
                 "mode": "connect",
                 "google_email": google_email,
             }
-            return HTMLResponse(build_popup_response_html(payload, origin))
+            return HTMLResponse(build_popup_response_html(payload, origin, native_redirect_uri))
 
         raise RuntimeError("Unknown OAuth mode")
     except Exception as e:
@@ -376,4 +422,4 @@ async def google_callback(
             "mode": mode,
             "error": str(e),
         }
-        return HTMLResponse(build_popup_response_html(payload, origin))
+        return HTMLResponse(build_popup_response_html(payload, origin, native_redirect_uri))

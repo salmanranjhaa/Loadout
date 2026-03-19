@@ -1,5 +1,11 @@
+import { Capacitor } from "@capacitor/core";
+import { App as CapacitorApp } from "@capacitor/app";
+import { Browser } from "@capacitor/browser";
+
 // I handle all API communication with the FastAPI backend
 const API_BASE = import.meta.env.VITE_API_URL || "/api/v1";
+const FALLBACK_PUBLIC_WEB_ORIGIN = "https://loadedout.online";
+const PUBLIC_WEB_ORIGIN = import.meta.env.VITE_PUBLIC_WEB_ORIGIN || FALLBACK_PUBLIC_WEB_ORIGIN;
 
 export function getApiBase() {
   return API_BASE;
@@ -10,6 +16,27 @@ export function getApiOrigin() {
     return new URL(API_BASE, window.location.origin).origin;
   } catch {
     return window.location.origin;
+  }
+}
+
+export function isNativePlatform() {
+  try {
+    return !!Capacitor?.isNativePlatform?.();
+  } catch {
+    return false;
+  }
+}
+
+export function getGoogleOAuthOrigin() {
+  if (!isNativePlatform()) return window.location.origin;
+  try {
+    const parsed = new URL(PUBLIC_WEB_ORIGIN);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error("Invalid protocol");
+    }
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return FALLBACK_PUBLIC_WEB_ORIGIN;
   }
 }
 
@@ -70,10 +97,10 @@ export const authAPI = {
       method: "POST",
       body: JSON.stringify({ refresh_token }),
     }),
-  getGoogleLoginUrl: (origin) =>
-    request(`/auth/google/login-url?origin=${encodeURIComponent(origin)}`),
-  getGoogleConnectUrl: (origin) =>
-    request(`/auth/google/connect-url?origin=${encodeURIComponent(origin)}`),
+  getGoogleLoginUrl: (origin, native = false, mode = "login") =>
+    request(`/auth/google/login-url?origin=${encodeURIComponent(origin)}${native ? "&native=1" : ""}&mode=${encodeURIComponent(mode)}`),
+  getGoogleConnectUrl: (origin, native = false) =>
+    request(`/auth/google/connect-url?origin=${encodeURIComponent(origin)}${native ? "&native=1" : ""}`),
 };
 
 export const scheduleAPI = {
@@ -239,4 +266,92 @@ export function runGoogleAuthPopup(authUrl, expectedMode, timeoutMs = 120000) {
 
     window.addEventListener("message", onMessage);
   });
+}
+
+function parseGooglePayloadFromAppUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const hashParams = new URLSearchParams((parsed.hash || "").replace(/^#/, ""));
+    const encoded = hashParams.get("google_oauth") || parsed.searchParams.get("google_oauth");
+    if (!encoded) return null;
+    const decodedBase64 = atob(decodeURIComponent(encoded));
+    let decodedJson = decodedBase64;
+    try {
+      decodedJson = decodeURIComponent(escape(decodedBase64));
+    } catch {
+      // Keep ASCII fallback for environments where escape/unescape is unavailable.
+    }
+    const payload = JSON.parse(decodedJson);
+    return payload && typeof payload === "object" ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+async function runGoogleAuthNative(authUrl, expectedMode, timeoutMs = 120000) {
+  return new Promise(async (resolve, reject) => {
+    let done = false;
+    let timeout;
+    let browserCloseGraceTimeout;
+    let appUrlListener;
+    let browserFinishedListener;
+
+    const cleanup = async () => {
+      if (timeout) clearTimeout(timeout);
+      if (browserCloseGraceTimeout) clearTimeout(browserCloseGraceTimeout);
+      try {
+        if (appUrlListener) await appUrlListener.remove();
+      } catch {}
+      try {
+        if (browserFinishedListener) await browserFinishedListener.remove();
+      } catch {}
+      try {
+        await Browser.close();
+      } catch {}
+    };
+
+    const finish = async (fn, value) => {
+      if (done) return;
+      done = true;
+      await cleanup();
+      fn(value);
+    };
+
+    try {
+      appUrlListener = await CapacitorApp.addListener("appUrlOpen", (event) => {
+        if (browserCloseGraceTimeout) clearTimeout(browserCloseGraceTimeout);
+        const payload = parseGooglePayloadFromAppUrl(event?.url || "");
+        if (!payload) return;
+        if (expectedMode && payload.mode !== expectedMode) return;
+
+        if (payload.status === "success") {
+          finish(resolve, payload);
+        } else {
+          finish(reject, new Error(payload.error || "Google authentication failed"));
+        }
+      });
+
+      browserFinishedListener = await Browser.addListener("browserFinished", () => {
+        // On Android, browser may close just before deep-link callback reaches app.
+        browserCloseGraceTimeout = setTimeout(() => {
+          finish(reject, new Error("Google authentication window was closed"));
+        }, 3000);
+      });
+
+      await Browser.open({ url: authUrl, presentationStyle: "fullscreen" });
+
+      timeout = setTimeout(() => {
+        finish(reject, new Error("Google authentication timed out"));
+      }, timeoutMs);
+    } catch (err) {
+      finish(reject, new Error(err?.message || "Unable to open Google authentication"));
+    }
+  });
+}
+
+export function runGoogleAuthFlow(authUrl, expectedMode, timeoutMs = 120000) {
+  if (isNativePlatform()) {
+    return runGoogleAuthNative(authUrl, expectedMode, timeoutMs);
+  }
+  return runGoogleAuthPopup(authUrl, expectedMode, timeoutMs);
 }

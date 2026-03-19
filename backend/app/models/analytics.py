@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, JSON, Boolean, Text, ForeignKey, Date
+from sqlalchemy import Column, Integer, String, Float, DateTime, JSON, Boolean, Text, ForeignKey, Date, UniqueConstraint
 from sqlalchemy.sql import func
 from app.core.database import Base
 
@@ -6,11 +6,12 @@ from app.core.database import Base
 class WeightLog(Base):
     """I track daily weight to monitor progress over time."""
     __tablename__ = "weight_logs"
+    __table_args__ = (UniqueConstraint("user_id", "date", name="uq_weight_logs_user_date"),)
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     
-    date = Column(Date, nullable=False, unique=True)
+    date = Column(Date, nullable=False)
     weight_kg = Column(Float, nullable=False)
     
     # I optionally store body measurements
@@ -81,11 +82,12 @@ class WorkoutTemplate(Base):
 class DailySnapshot(Base):
     """I create a daily summary for analytics dashboards."""
     __tablename__ = "daily_snapshots"
+    __table_args__ = (UniqueConstraint("user_id", "date", name="uq_daily_snapshots_user_date"),)
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     
-    date = Column(Date, nullable=False, unique=True)
+    date = Column(Date, nullable=False)
     
     # I aggregate nutrition data
     total_calories = Column(Float, nullable=True)

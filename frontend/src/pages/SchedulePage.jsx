@@ -1,6 +1,12 @@
 import { useState, useEffect } from "react";
 import { MapPin, ChevronDown, ChevronUp, Plus, Trash2, Edit2, Check, Link2, RefreshCw } from "lucide-react";
-import { authAPI, runGoogleAuthPopup, scheduleAPI } from "../utils/api";
+import {
+  authAPI,
+  getGoogleOAuthOrigin,
+  isNativePlatform,
+  runGoogleAuthFlow,
+  scheduleAPI,
+} from "../utils/api";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const DAY_FULL = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -203,8 +209,9 @@ export default function SchedulePage() {
   async function connectGoogleCalendar() {
     setGoogleLoading(true);
     try {
-      const { auth_url } = await authAPI.getGoogleConnectUrl(window.location.origin);
-      await runGoogleAuthPopup(auth_url, "connect");
+      const native = isNativePlatform();
+      const { auth_url } = await authAPI.getGoogleConnectUrl(getGoogleOAuthOrigin(), native);
+      await runGoogleAuthFlow(auth_url, "connect");
       const status = await scheduleAPI.googleStatus();
       setGoogleStatus(status);
       alert("Google Calendar connected.");

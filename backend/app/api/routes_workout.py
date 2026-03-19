@@ -68,7 +68,7 @@ async def analyze_workout_route(
     """I analyze a workout with AI and return calories, muscle groups, recovery info."""
     user_result = await db.execute(select(User).where(User.id == user["sub"]))
     user_obj = user_result.scalar_one_or_none()
-    profile = {"current_weight_kg": user_obj.current_weight_kg if user_obj else 98.6}
+    profile = {"current_weight_kg": user_obj.current_weight_kg if user_obj else None}
 
     result = await analyze_workout(
         workout_type=body.workout_type,

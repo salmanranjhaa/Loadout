@@ -52,11 +52,16 @@ async def ai_chat(
         "target_weight_kg": user_profile.target_weight_kg,
         "height_cm": user_profile.height_cm,
         "age": user_profile.age,
+        "gender": user_profile.gender,
         "daily_calorie_target": user_profile.daily_calorie_target,
         "daily_protein_target": user_profile.daily_protein_target,
+        "daily_carb_target": user_profile.daily_carb_target,
+        "daily_fat_target": user_profile.daily_fat_target,
+        "preferred_currency": user_profile.preferred_currency,
         "dietary_preferences": user_profile.dietary_preferences,
         "supplements": user_profile.supplements,
         "routine_preferences": user_profile.routine_preferences,
+        "grocery_stores": user_profile.grocery_stores,
     }
 
     # I retrieve vector-similarity context from historical meal/workout/schedule data
@@ -196,12 +201,21 @@ Suggest 2-3 alternative meals that match the macro range and are halal/Swiss-ava
 Respond with a JSON array of meal suggestions using the save_meal_template format."""
 
     profile_dict = {
+        "username": user_profile.username,
         "current_weight_kg": user_profile.current_weight_kg,
         "target_weight_kg": user_profile.target_weight_kg,
         "height_cm": user_profile.height_cm,
         "age": user_profile.age,
+        "gender": user_profile.gender,
         "daily_calorie_target": user_profile.daily_calorie_target,
         "daily_protein_target": user_profile.daily_protein_target,
+        "daily_carb_target": user_profile.daily_carb_target,
+        "daily_fat_target": user_profile.daily_fat_target,
+        "preferred_currency": user_profile.preferred_currency,
+        "dietary_preferences": user_profile.dietary_preferences,
+        "supplements": user_profile.supplements,
+        "routine_preferences": user_profile.routine_preferences,
+        "grocery_stores": user_profile.grocery_stores,
     }
 
     response = await chat_with_ai(message=swap_prompt, user_profile=profile_dict)

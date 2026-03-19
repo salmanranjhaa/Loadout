@@ -6,11 +6,11 @@ import {
   CategoryScale, LinearScale, PointElement, LineElement,
   BarElement, Tooltip, Filler,
 } from "chart.js";
-import { analyticsAPI, workoutAPI, budgetAPI } from "../utils/api";
+import { analyticsAPI, workoutAPI, budgetAPI, userAPI } from "../utils/api";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Filler);
 
-const TABS = ["Overview", "Weight", "Fitness", "Nutrition"];
+const TABS = ["Overview", "Weight", "Fitness", "Nutrition", "Profile"];
 
 const CHART_OPTS = {
   responsive: true,
@@ -20,6 +20,31 @@ const CHART_OPTS = {
     y: { grid: { color: "rgba(148,163,184,0.08)" }, ticks: { color: "#64748b", font: { size: 9 } } },
   },
 };
+
+const EMPTY_PROFILE_FORM = {
+  current_weight_kg: "",
+  target_weight_kg: "",
+  height_cm: "",
+  age: "",
+  gender: "",
+  daily_calorie_target: "",
+  daily_protein_target: "",
+  daily_carb_target: "",
+  daily_fat_target: "",
+  preferred_currency: "CHF",
+};
+
+function valueOrEmpty(value) {
+  return value === null || value === undefined ? "" : String(value);
+}
+
+function toNumberOrNull(value) {
+  if (value === null || value === undefined) return null;
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
 
 function StatCard({ icon: Icon, value, label, color, sub }) {
@@ -36,6 +61,10 @@ function StatCard({ icon: Icon, value, label, color, sub }) {
 export default function AnalyticsPage() {
   const [tab, setTab] = useState("Overview");
   const [dashboard, setDashboard] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [profileForm, setProfileForm] = useState(EMPTY_PROFILE_FORM);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileSaved, setProfileSaved] = useState(false);
   const [weights, setWeights] = useState([]);
   const [workouts, setWorkouts] = useState([]);
   const [weightInput, setWeightInput] = useState("");
@@ -47,16 +76,30 @@ export default function AnalyticsPage() {
 
   async function loadAll() {
     try {
-      const [dash, wData, bSum, wkData] = await Promise.all([
+      const [dash, wData, bSum, wkData, userProfile] = await Promise.all([
         analyticsAPI.getDashboard(),
         analyticsAPI.getWeights(30),
         budgetAPI.getSummary(),
         workoutAPI.getAll(30),
+        userAPI.getProfile(),
       ]);
       setDashboard(dash);
       setWeights(wData.weights || []);
       setBudgetSummary(bSum);
       setWorkouts(wkData.workouts || []);
+      setProfile(userProfile);
+      setProfileForm({
+        current_weight_kg: valueOrEmpty(userProfile.current_weight_kg),
+        target_weight_kg: valueOrEmpty(userProfile.target_weight_kg),
+        height_cm: valueOrEmpty(userProfile.height_cm),
+        age: valueOrEmpty(userProfile.age),
+        gender: valueOrEmpty(userProfile.gender),
+        daily_calorie_target: valueOrEmpty(userProfile.daily_calorie_target),
+        daily_protein_target: valueOrEmpty(userProfile.daily_protein_target),
+        daily_carb_target: valueOrEmpty(userProfile.daily_carb_target),
+        daily_fat_target: valueOrEmpty(userProfile.daily_fat_target),
+        preferred_currency: userProfile.preferred_currency || "CHF",
+      });
     } catch {/* silently fail */}
   }
 
@@ -75,9 +118,40 @@ export default function AnalyticsPage() {
     setLoggingWeight(false);
   }
 
+  function updateProfileField(field, value) {
+    setProfileForm(prev => ({ ...prev, [field]: value }));
+  }
+
+  async function saveProfile() {
+    setSavingProfile(true);
+    setProfileSaved(false);
+    try {
+      await userAPI.updateProfile({
+        current_weight_kg: toNumberOrNull(profileForm.current_weight_kg),
+        target_weight_kg: toNumberOrNull(profileForm.target_weight_kg),
+        height_cm: toNumberOrNull(profileForm.height_cm),
+        age: toNumberOrNull(profileForm.age),
+        gender: (profileForm.gender || "").trim() || null,
+        daily_calorie_target: toNumberOrNull(profileForm.daily_calorie_target),
+        daily_protein_target: toNumberOrNull(profileForm.daily_protein_target),
+        daily_carb_target: toNumberOrNull(profileForm.daily_carb_target),
+        daily_fat_target: toNumberOrNull(profileForm.daily_fat_target),
+        preferred_currency: (profileForm.preferred_currency || "").trim().toUpperCase() || "CHF",
+      });
+      setProfileSaved(true);
+      setTimeout(() => setProfileSaved(false), 2000);
+      await loadAll();
+    } catch (e) {
+      alert(e.message || "Failed to save profile");
+    } finally {
+      setSavingProfile(false);
+    }
+  }
+
   const current = dashboard?.weight.current;
   const weekChange = dashboard?.weight.week_change;
-  const toTarget = current ? (current - 81).toFixed(1) : null;
+  const goalWeight = toNumberOrNull(profile?.target_weight_kg);
+  const toTarget = current != null && goalWeight != null ? (current - goalWeight).toFixed(1) : null;
 
   const weightSlice = weights.slice(-21);
   const weightLineData = {
@@ -110,8 +184,10 @@ export default function AnalyticsPage() {
     }],
   };
 
-  const calorieTarget = 2100;
-  const proteinTarget = 190;
+  const calorieTarget = toNumberOrNull(profile?.daily_calorie_target) || 2100;
+  const proteinTarget = toNumberOrNull(profile?.daily_protein_target) || 190;
+  const currencyCode = (profile?.preferred_currency || "CHF").toUpperCase();
+  const formatMoney = (amount) => `${currencyCode} ${Number(amount || 0).toFixed(0)}`;
   const avgCal = dashboard?.nutrition_this_week.avg_calories;
   const avgPro = dashboard?.nutrition_this_week.avg_protein;
 
@@ -154,7 +230,7 @@ export default function AnalyticsPage() {
               </div>
               <div className="text-[10px] text-slate-500">kg this week</div>
             </div>
-            <StatCard icon={Target} value={toTarget} label="kg to 81" color="text-amber-400" />
+            <StatCard icon={Target} value={toTarget} label="kg to goal" color="text-amber-400" />
           </div>
 
           {/* Fitness row */}
@@ -238,15 +314,15 @@ export default function AnalyticsPage() {
               </div>
               <div className="grid grid-cols-3 gap-3 mb-2">
                 <div className="text-center">
-                  <div className="text-lg font-bold text-amber-400">CHF {budgetSummary.this_week.total.toFixed(0)}</div>
+                  <div className="text-lg font-bold text-amber-400">{formatMoney(budgetSummary.this_week.total)}</div>
                   <div className="text-[10px] text-slate-500">spent</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-lg font-bold text-slate-400">CHF {budgetSummary.last_week.total.toFixed(0)}</div>
+                  <div className="text-lg font-bold text-slate-400">{formatMoney(budgetSummary.last_week.total)}</div>
                   <div className="text-[10px] text-slate-500">last week</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-lg font-bold text-slate-300">CHF {budgetSummary.this_month.total.toFixed(0)}</div>
+                  <div className="text-lg font-bold text-slate-300">{formatMoney(budgetSummary.this_month.total)}</div>
                   <div className="text-[10px] text-slate-500">this month</div>
                 </div>
               </div>
@@ -257,7 +333,7 @@ export default function AnalyticsPage() {
                     .slice(0, 4)
                     .map(([cat, amt]) => (
                       <span key={cat} className="text-[9px] bg-slate-700 text-slate-400 px-2 py-0.5 rounded-full capitalize">
-                        {cat} CHF {amt.toFixed(0)}
+                        {cat} {formatMoney(amt)}
                       </span>
                     ))}
                 </div>
@@ -278,7 +354,7 @@ export default function AnalyticsPage() {
               </div>
               <div className="text-[10px] text-slate-500">week change</div>
             </div>
-            <StatCard icon={Target} value={toTarget != null ? `${toTarget}kg` : null} label="to goal (81)" color="text-amber-400" />
+            <StatCard icon={Target} value={toTarget != null ? `${toTarget}kg` : null} label="to goal" color="text-amber-400" />
           </div>
 
           {weightSlice.length > 1 && (
@@ -295,7 +371,7 @@ export default function AnalyticsPage() {
                 type="number" step="0.1"
                 value={weightInput}
                 onChange={e => setWeightInput(e.target.value)}
-                placeholder="98.5"
+                placeholder="Enter weight"
                 className="flex-1 bg-slate-800 rounded-lg px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 focus:outline-none"
               />
               <button
@@ -423,6 +499,150 @@ export default function AnalyticsPage() {
                 {dashboard.nutrition_this_week.total_meals_logged} meals logged this week
               </p>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Profile tab */}
+      {tab === "Profile" && (
+        <div className="space-y-4">
+          <div className="bg-bg-card rounded-xl p-4">
+            <h3 className="text-xs font-semibold text-slate-400 mb-3">Personal Profile</h3>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[10px] text-slate-500 mb-1">Age</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={profileForm.age}
+                  onChange={e => updateProfileField("age", e.target.value)}
+                  className="w-full bg-slate-800 rounded-lg px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 focus:outline-none"
+                  placeholder="e.g. 25"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-slate-500 mb-1">Gender</label>
+                <select
+                  value={profileForm.gender}
+                  onChange={e => updateProfileField("gender", e.target.value)}
+                  className="w-full bg-slate-800 rounded-lg px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="">Not set</option>
+                  <option value="female">Female</option>
+                  <option value="male">Male</option>
+                  <option value="non_binary">Non-binary</option>
+                  <option value="prefer_not_to_say">Prefer not to say</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] text-slate-500 mb-1">Current weight (kg)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={profileForm.current_weight_kg}
+                  onChange={e => updateProfileField("current_weight_kg", e.target.value)}
+                  className="w-full bg-slate-800 rounded-lg px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 focus:outline-none"
+                  placeholder="e.g. 72.5"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-slate-500 mb-1">Goal weight (kg)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={profileForm.target_weight_kg}
+                  onChange={e => updateProfileField("target_weight_kg", e.target.value)}
+                  className="w-full bg-slate-800 rounded-lg px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 focus:outline-none"
+                  placeholder="e.g. 68"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-slate-500 mb-1">Height (cm)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={profileForm.height_cm}
+                  onChange={e => updateProfileField("height_cm", e.target.value)}
+                  className="w-full bg-slate-800 rounded-lg px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 focus:outline-none"
+                  placeholder="e.g. 172"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-slate-500 mb-1">Currency</label>
+                <select
+                  value={profileForm.preferred_currency}
+                  onChange={e => updateProfileField("preferred_currency", e.target.value)}
+                  className="w-full bg-slate-800 rounded-lg px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="CHF">CHF</option>
+                  <option value="EUR">EUR</option>
+                  <option value="USD">USD</option>
+                  <option value="GBP">GBP</option>
+                  <option value="PKR">PKR</option>
+                  <option value="INR">INR</option>
+                  <option value="AED">AED</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-bg-card rounded-xl p-4">
+            <h3 className="text-xs font-semibold text-slate-400 mb-3">Daily Targets</h3>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[10px] text-slate-500 mb-1">Calories</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={profileForm.daily_calorie_target}
+                  onChange={e => updateProfileField("daily_calorie_target", e.target.value)}
+                  className="w-full bg-slate-800 rounded-lg px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 focus:outline-none"
+                  placeholder="e.g. 2100"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-slate-500 mb-1">Protein (g)</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={profileForm.daily_protein_target}
+                  onChange={e => updateProfileField("daily_protein_target", e.target.value)}
+                  className="w-full bg-slate-800 rounded-lg px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 focus:outline-none"
+                  placeholder="e.g. 150"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-slate-500 mb-1">Carbs (g)</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={profileForm.daily_carb_target}
+                  onChange={e => updateProfileField("daily_carb_target", e.target.value)}
+                  className="w-full bg-slate-800 rounded-lg px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 focus:outline-none"
+                  placeholder="e.g. 180"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-slate-500 mb-1">Fat (g)</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={profileForm.daily_fat_target}
+                  onChange={e => updateProfileField("daily_fat_target", e.target.value)}
+                  className="w-full bg-slate-800 rounded-lg px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 focus:outline-none"
+                  placeholder="e.g. 70"
+                />
+              </div>
+            </div>
+            <button
+              onClick={saveProfile}
+              disabled={savingProfile}
+              className="mt-3 w-full py-2.5 bg-blue-600/20 text-blue-300 rounded-lg text-sm font-medium hover:bg-blue-600/30 disabled:opacity-40"
+            >
+              {savingProfile ? "Saving..." : "Save Profile"}
+            </button>
+            {profileSaved && <p className="text-xs text-emerald-400 mt-2">Profile updated.</p>}
           </div>
         </div>
       )}

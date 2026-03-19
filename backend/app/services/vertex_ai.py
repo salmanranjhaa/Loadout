@@ -297,25 +297,32 @@ async def generate_content_with_fallback(
     )
 
 
-SYSTEM_PROMPT = """You are a nutrition and routine assistant for {username}, a 28-year-old male in St. Gallen, Switzerland.
+SYSTEM_PROMPT = """You are a nutrition, workout, and routine assistant for {username}.
 
-PROFILE:
-- Current weight: {weight}kg, Target: {target}kg, Height: {height}cm, Age: {age}
-- Daily targets: {calories} kcal, {protein}g protein
-- Diet: Halal, no alcohol. Prefers simple cooking.
-- Likes: chicken breast, eggs, Greek yogurt, feta, lettuce, cucumber, tomato, lentils (red split, channa), basmati rice, oats, bananas, berries, apples
-- Dislikes: rucola/arugula
-- Grocery stores: Lidl, Aldi, Denner. Halal chicken from local halal store (2kg boneless breast for 16 CHF). Supplements from Migros.
-- Training: CrossFit 3x/week, running 2-3x/week, football, yoga, cycling
-- Goal: Weight loss while maintaining muscle
+USER PROFILE (do not invent missing values):
+- Current weight: {weight}
+- Target weight: {target}
+- Height: {height}
+- Age: {age}
+- Gender: {gender}
+- Daily targets: {calories} calories, {protein} protein, {carbs} carbs, {fat} fat
+- Preferred currency: {currency}
+- Dietary preferences: {dietary_preferences}
+- Supplement schedule: {supplements}
+- Routine preferences: {routine_preferences}
+- Grocery preferences: {grocery_preferences}
 
-CONVERSATIONAL RULES:
-1. Always respond in friendly, conversational text. Include macros inline when suggesting meals (e.g. "~350 kcal, 40g protein, 25g carbs, 10g fat").
-2. Keep meals simple, affordable, and halal - Swiss market prices. If CURRENT PANTRY/INVENTORY is provided in context, prioritize ingredients already available at home.
-3. When asked for a grocery list, cross-reference the inventory and only list items that are missing or low.
-4. ALWAYS complete your full response. Never cut off mid-sentence or mid-list. If giving a recipe, include all steps and ingredients before stopping.
-5. Do NOT output JSON unless the user explicitly confirms they want to save something (e.g. "save this", "add it", "yes", "save that meal", "add to my meals", "finalise", "keep it").
-5. ONLY when the user explicitly confirms saving a meal, respond with ONLY this JSON (no text before or after):
+PERSONALIZATION RULES:
+1. If a profile value is "not provided", treat it as unknown and never guess it.
+2. Never mention personal facts (name, weight, age, location, targets, food habits) unless present in this user's profile/context.
+3. If CURRENT PANTRY/INVENTORY is provided in context, prioritize ingredients already available at home.
+4. When asked for grocery lists, list only missing/low items based on pantry context.
+5. Always complete responses; do not cut off mid-sentence.
+6. Keep responses clear and practical with inline macros where useful (for example: "~350 kcal, 40g protein, 25g carbs, 10g fat").
+
+ACTION RULES:
+1. Do NOT output JSON unless the user explicitly confirms a save/add action ("save this", "add it", "yes", "save that meal", "add to my meals", "save this workout", "add to schedule", etc.).
+2. When saving a meal, respond with ONLY this JSON:
 {{
   "action_type": "save_meal_template",
   "name": "Meal Name",
@@ -327,8 +334,7 @@ CONVERSATIONAL RULES:
   "ingredients": [{{"name": "item", "amount": "150g", "calories": 165, "protein": 31}}],
   "prep_instructions": "brief instructions"
 }}
-
-6. ONLY when the user explicitly confirms adding a schedule event, respond with ONLY this JSON:
+3. When adding a schedule event, respond with ONLY this JSON:
 {{
   "action_type": "add_schedule_event",
   "title": "Event Title",
@@ -338,8 +344,7 @@ CONVERSATIONAL RULES:
   "end_time": "08:00",
   "reasoning": "why this fits the routine"
 }}
-
-7. ONLY when the user explicitly confirms saving a workout template (e.g. "save this workout", "save it", "add to my workouts"), respond with ONLY this JSON:
+4. When saving a workout template, respond with ONLY this JSON:
 {{
   "action_type": "save_workout_template",
   "name": "Workout Name",
@@ -351,8 +356,41 @@ CONVERSATIONAL RULES:
   "estimated_duration": 60,
   "tags": ["chest", "strength", "hypertrophy"]
 }}
-For CrossFit/cardio templates where sets don't apply, use null for sets and describe reps as rounds/time. Always include exercises even for cardio (e.g. WOD movements).
+For cardio/CrossFit templates where set counts are not meaningful, use null for sets and describe reps using rounds/time.
 """
+
+
+def _format_profile_metric(value, unit: str = "") -> str:
+    if value is None or value == "":
+        return "not provided"
+    try:
+        number = float(value)
+        text = str(int(number)) if number.is_integer() else f"{number:.1f}".rstrip("0").rstrip(".")
+        return f"{text}{unit}"
+    except (TypeError, ValueError):
+        return f"{value}{unit}" if unit else str(value)
+
+
+def _format_profile_blob(value) -> str:
+    if value is None or value == "" or value == [] or value == {}:
+        return "not provided"
+    if isinstance(value, list):
+        compact = [str(v).strip() for v in value if str(v).strip()]
+        return ", ".join(compact) if compact else "not provided"
+    if isinstance(value, dict):
+        parts = []
+        for key, raw in value.items():
+            if raw in (None, "", [], {}):
+                continue
+            label = key.replace("_", " ")
+            if isinstance(raw, list):
+                compact = [str(v).strip() for v in raw if str(v).strip()]
+                if compact:
+                    parts.append(f"{label}: {', '.join(compact)}")
+            else:
+                parts.append(f"{label}: {raw}")
+        return "; ".join(parts) if parts else "not provided"
+    return str(value)
 
 def _repair_json(text: str) -> str:
     """I fix common AI JSON output issues like thousands separators and trailing commas."""
@@ -479,7 +517,8 @@ def _as_float(value):
 
 def _estimate_calories_fallback(workout_type: str, duration_minutes: int, weight_kg: float) -> int:
     met = _WORKOUT_METS.get(workout_type.lower(), 6.0)
-    return round(met * weight_kg * (duration_minutes / 60))
+    safe_weight = _as_float(weight_kg) or 75.0
+    return round(met * safe_weight * (duration_minutes / 60))
 
 
 def _estimate_calories_with_details(
@@ -641,12 +680,20 @@ async def chat_with_ai(
 
     system_instruction = SYSTEM_PROMPT.format(
         username=user_profile.get("username", "there"),
-        weight=user_profile.get("current_weight_kg", 98.6),
-        target=user_profile.get("target_weight_kg", 81.0),
-        height=user_profile.get("height_cm", 175),
-        age=user_profile.get("age", 28),
-        calories=user_profile.get("daily_calorie_target", 2100),
-        protein=user_profile.get("daily_protein_target", 190),
+        weight=_format_profile_metric(user_profile.get("current_weight_kg"), "kg"),
+        target=_format_profile_metric(user_profile.get("target_weight_kg"), "kg"),
+        height=_format_profile_metric(user_profile.get("height_cm"), "cm"),
+        age=_format_profile_metric(user_profile.get("age")),
+        gender=_format_profile_metric(user_profile.get("gender")),
+        calories=_format_profile_metric(user_profile.get("daily_calorie_target"), " kcal"),
+        protein=_format_profile_metric(user_profile.get("daily_protein_target"), " g"),
+        carbs=_format_profile_metric(user_profile.get("daily_carb_target"), " g"),
+        fat=_format_profile_metric(user_profile.get("daily_fat_target"), " g"),
+        currency=(user_profile.get("preferred_currency") or "CHF"),
+        dietary_preferences=_format_profile_blob(user_profile.get("dietary_preferences")),
+        supplements=_format_profile_blob(user_profile.get("supplements")),
+        routine_preferences=_format_profile_blob(user_profile.get("routine_preferences")),
+        grocery_preferences=_format_profile_blob(user_profile.get("grocery_stores")),
     )
 
     # I build the conversation contents list
@@ -715,7 +762,7 @@ async def analyze_workout(
     user_profile: dict,
 ) -> dict:
     """I use Gemini to analyze a workout and return calories, impact, recovery recommendations."""
-    weight = user_profile.get("current_weight_kg", 98.6)
+    weight = _as_float(user_profile.get("current_weight_kg"))
     fallback = _fallback_workout_analysis(
         workout_type=workout_type,
         duration_minutes=duration_minutes,
@@ -730,9 +777,14 @@ async def analyze_workout(
         return fallback
 
     metrics_json = json.dumps(details or {}, ensure_ascii=True)
+    athlete_line = (
+        f"ATHLETE: weight {weight:.1f}kg, goal: improve fitness with healthy progression"
+        if weight is not None
+        else "ATHLETE: weight not provided, goal: improve fitness with healthy progression"
+    )
     prompt = f"""Analyze this workout. Respond ONLY with valid JSON, no other text.
 
-ATHLETE: weight {weight}kg, goal: weight loss while maintaining muscle
+{athlete_line}
 WORKOUT: {workout_type} | {duration_minutes} min | {intensity} intensity
 DESCRIPTION: {description or "No description provided"}
 METRICS: {metrics_json}

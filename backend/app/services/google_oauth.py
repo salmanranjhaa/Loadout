@@ -21,7 +21,12 @@ def ensure_google_oauth_config() -> None:
         raise RuntimeError("Google OAuth is not configured (GOOGLE_CLIENT_ID/SECRET/REDIRECT_URI).")
 
 
-def encode_google_state(mode: str, origin: str, user_id: int | None = None) -> str:
+def encode_google_state(
+    mode: str,
+    origin: str,
+    user_id: int | None = None,
+    native: bool = False,
+) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "type": STATE_TOKEN_TYPE,
@@ -33,6 +38,8 @@ def encode_google_state(mode: str, origin: str, user_id: int | None = None) -> s
     }
     if user_id is not None:
         payload["user_id"] = int(user_id)
+    if native:
+        payload["native"] = True
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 
@@ -127,9 +134,14 @@ def scopes_to_string(token_data: dict) -> str:
     return ""
 
 
-def build_popup_response_html(payload: dict, origin: str | None) -> str:
+def build_popup_response_html(
+    payload: dict,
+    origin: str | None,
+    native_redirect_uri: str | None = None,
+) -> str:
     safe_payload = json.dumps(payload)
     safe_origin = json.dumps(origin or "*")
+    safe_native_redirect = json.dumps(native_redirect_uri or "")
     return f"""<!doctype html>
 <html>
   <head><meta charset="utf-8"><title>Loadout Google Auth</title></head>
@@ -139,18 +151,32 @@ def build_popup_response_html(payload: dict, origin: str | None) -> str:
       (function() {{
         const payload = {safe_payload};
         const targetOrigin = {safe_origin};
+        const nativeRedirectUri = {safe_native_redirect};
+        const msgEl = document.getElementById("msg");
+
+        function toBase64(input) {{
+          return btoa(unescape(encodeURIComponent(input)));
+        }}
         try {{
           if (window.opener && typeof window.opener.postMessage === "function") {{
             window.opener.postMessage({{ type: "lifeplan_google_auth", payload }}, targetOrigin || "*");
           }}
+
+          if (nativeRedirectUri) {{
+            const encoded = encodeURIComponent(toBase64(JSON.stringify(payload)));
+            window.location.href = `${{nativeRedirectUri}}#google_oauth=${{encoded}}`;
+          }}
+
           const ok = payload && payload.status === "success";
-          document.getElementById("msg").textContent = ok
+          msgEl.textContent = ok
             ? "Authentication complete. You can close this window."
             : ("Authentication failed: " + (payload && payload.error ? payload.error : "unknown_error"));
         }} catch (e) {{
-          document.getElementById("msg").textContent = "Authentication failed.";
+          msgEl.textContent = "Authentication failed.";
         }}
-        setTimeout(function() {{ window.close(); }}, 800);
+        setTimeout(function() {{
+          if (!nativeRedirectUri) window.close();
+        }}, 800);
       }})();
     </script>
   </body>

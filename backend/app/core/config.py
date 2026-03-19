@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
     GOOGLE_REDIRECT_URI: str = "http://localhost:8001/api/v1/auth/google/callback"
+    # Native deep-link target for Capacitor app (used after OAuth callback)
+    GOOGLE_NATIVE_REDIRECT_URI: str = "com.antigravity.lifeplan://auth"
 
     def get_allowed_origins(self) -> list[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",") if o.strip()]
