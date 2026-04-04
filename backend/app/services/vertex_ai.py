@@ -833,7 +833,7 @@ Respond with exactly this JSON structure:
         async def _run_analysis(run_prompt: str, *, enforce_json_mime: bool) -> dict:
             cfg = {
                 "temperature": 0.1,
-                "max_output_tokens": 512,
+                "max_output_tokens": 2048,
             }
             if enforce_json_mime:
                 cfg["response_mime_type"] = "application/json"
