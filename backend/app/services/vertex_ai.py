@@ -893,17 +893,7 @@ Respond with exactly this JSON structure:
         }
     except Exception as e:
         logger.error(f"Workout analysis failed: {e}")
-        err = str(e)
-        is_quota = ("RESOURCE_EXHAUSTED" in err) or ("429" in err)
-        if is_quota:
-            fallback["notes"] = "AI quota exhausted right now; using metric-based estimate."
-            fallback["weekly_impact"] = "Estimated load used because Vertex quota is temporarily exhausted."
-            fallback["analysis_error_type"] = "quota_exhausted"
-        else:
-            fallback["notes"] = "AI analysis unavailable; using metric-based estimate."
-            fallback["analysis_error_type"] = "analysis_unavailable"
-        fallback["analysis_error"] = err[:180]
-        return fallback
+        raise RuntimeError(f"AI Workout Analysis Enforced - Failed with error: {e}")
 
 
 async def calculate_macros_from_description(food_description: str) -> dict:
