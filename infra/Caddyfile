@@ -7,7 +7,7 @@ loadedout.online {
     try_files {path} /index.html
 
     # Proxy API requests to the FastAPI backend
-    handle_path /api/* {
+    handle /api/* {
         # Backend runs on internal port 8000
         reverse_proxy backend:8000
     }
