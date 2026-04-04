@@ -242,6 +242,10 @@ async def generate_content_with_fallback(
                         contents=contents,
                         config=config,
                     )
+                    text = _response_text(response)
+                    if not text:
+                        diag = _response_diagnostics(response)
+                        raise RuntimeError(f"Empty model response ({diag})")
                     if region != settings.GCP_REGION or model_name != (preferred_model or settings.VERTEX_AI_MODEL):
                         logger.warning(
                             "Vertex AI fallback succeeded with model=%s region=%s",
@@ -484,6 +488,29 @@ def _response_text(response) -> str:
         pass
 
     return ""
+
+
+def _response_diagnostics(response) -> str:
+    """I provide compact response metadata to debug empty candidate text."""
+    try:
+        candidates = getattr(response, "candidates", None) or []
+        parts = [f"candidates={len(candidates)}"]
+        if candidates:
+            first = candidates[0]
+            finish_reason = getattr(first, "finish_reason", None)
+            if finish_reason is not None:
+                parts.append(f"finish_reason={finish_reason}")
+            safety = getattr(first, "safety_ratings", None)
+            if safety:
+                parts.append("safety_ratings=present")
+        prompt_feedback = getattr(response, "prompt_feedback", None)
+        if prompt_feedback is not None:
+            block_reason = getattr(prompt_feedback, "block_reason", None)
+            if block_reason:
+                parts.append(f"block_reason={block_reason}")
+        return ", ".join(parts)
+    except Exception:
+        return "diagnostics_unavailable"
 
 
 _WORKOUT_METS = {
@@ -801,27 +828,50 @@ Respond with exactly this JSON structure:
 }}"""
 
     try:
-        async def _run_analysis(run_prompt: str) -> dict:
+        async def _run_analysis(run_prompt: str, *, enforce_json_mime: bool) -> dict:
+            cfg = {
+                "temperature": 0.1,
+                "max_output_tokens": 512,
+            }
+            if enforce_json_mime:
+                cfg["response_mime_type"] = "application/json"
             response = await generate_content_with_fallback(
                 contents=run_prompt,
                 preferred_model=settings.VERTEX_AI_MODEL,
-                config=types.GenerateContentConfig(
-                    temperature=0.1,
-                    max_output_tokens=512,
-                    response_mime_type="application/json",
-                ),
+                config=types.GenerateContentConfig(**cfg),
             )
             return _parse_json_dict(_response_text(response))
 
-        try:
-            parsed = await _run_analysis(prompt)
-        except Exception as first_error:
-            logger.warning("Workout analysis parse failed once; retrying strict JSON: %s", first_error)
-            strict_prompt = (
-                prompt
-                + "\nReturn ONLY a single JSON object on one line, no markdown fences, no prose."
-            )
-            parsed = await _run_analysis(strict_prompt)
+        attempts = [
+            (
+                "strict_json_mime",
+                prompt,
+                True,
+            ),
+            (
+                "strict_json_mime_one_line",
+                prompt + "\nReturn ONLY a single JSON object on one line, no markdown fences, no prose.",
+                True,
+            ),
+            (
+                "relaxed_json_mode",
+                prompt + "\nReturn plain JSON only. Do not include markdown fences.",
+                False,
+            ),
+        ]
+
+        parsed = None
+        attempt_errors = []
+        for label, run_prompt, enforce_json_mime in attempts:
+            try:
+                parsed = await _run_analysis(run_prompt, enforce_json_mime=enforce_json_mime)
+                break
+            except Exception as err:
+                logger.warning("Workout analysis parse attempt failed (%s): %s", label, err)
+                attempt_errors.append(f"{label}: {err}")
+
+        if parsed is None:
+            raise RuntimeError("; ".join(attempt_errors[:3]))
 
         muscle_groups = parsed.get("muscle_groups") if isinstance(parsed.get("muscle_groups"), list) else []
         ai_calories = _as_int(parsed.get("calories_burned"), fallback["calories_burned"])

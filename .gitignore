@@ -11,9 +11,10 @@ venv/
 node_modules/
 frontend/dist/
 
-# Environment
+# Environment — real secrets are ignored, examples are tracked
 .env
 *.env.local
+infra/.env.prod
 gcp-key.json
 client_secret_*.json
 oauth_client_*.json
@@ -37,7 +38,7 @@ frontend/android/local.properties
 *.keystore
 *.jks
 
-# Android env (contains local IP)
+# Android env (contains local IP — keep ignored)
 frontend/.env.android
-frontend/.env.production
 frontend/.env.android.bak
+# frontend/.env.production is NOT ignored — it only has VITE_API_URL=/api/v1 (non-sensitive)

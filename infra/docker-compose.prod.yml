@@ -1,17 +1,98 @@
-# Production compose for deployed-stuff VM
-# Uses the VM's existing PostgreSQL 17 (no DB container needed)
-# Uses host networking so the container can reach 127.0.0.1:5432
-# Backend exposed on port 8001 (port 8000 is taken by erp-rag)
+# LifePlan — Standalone Production Stack
+# Fully self-contained: own network, own volumes, own ports.
+# No overlap with erp-rag or any other project on this VM.
+#
+# Port allocation (all free on the VM):
+#   80   → nginx (serves React SPA + proxies /api/ to backend)
+#   8002 → FastAPI backend (also exposed for Android APK direct access)
+#   DB and Mongo are internal only (no host port binding in prod)
+#
+# Deploy from ~/projects/lifeplan/infra/
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+#
+# First-time DB migration (after up):
+#   docker compose -f docker-compose.prod.yml exec backend alembic upgrade head
 
 services:
+
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: lifeplan_db
+      POSTGRES_USER: lifeplan_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - lifeplan-pgdata:/var/lib/postgresql/data
+    networks:
+      - lifeplan-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lifeplan_user -d lifeplan_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - lifeplan-mongodata:/data/db
+    networks:
+      - lifeplan-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
-      context: ../backend
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
     env_file:
       - .env.prod
+    environment:
+      # Override DB URLs to use Docker internal service hostnames
+      DATABASE_URL: "postgresql+asyncpg://lifeplan_user:${POSTGRES_PASSWORD}@db:5432/lifeplan_db"
+      DATABASE_URL_SYNC: "postgresql+psycopg2://lifeplan_user:${POSTGRES_PASSWORD}@db:5432/lifeplan_db"
+      MONGODB_URI: "mongodb://mongo:27017"
+      MONGODB_DB_NAME: "lifeplan"
+      GOOGLE_APPLICATION_CREDENTIALS: "/app/adc.json"
     volumes:
       - /home/salma/.config/gcloud/application_default_credentials.json:/app/adc.json:ro
-    network_mode: host
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8001
+    ports:
+      - "8002:8000"
+    networks:
+      - lifeplan-net
+    depends_on:
+      db:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: frontend/Dockerfile
+      args:
+        # Relative URL — nginx proxies /api/ to the backend container internally
+        VITE_API_URL: /api/v1
     restart: unless-stopped
+    ports:
+      - "80:80"
+    networks:
+      - lifeplan-net
+    depends_on:
+      - backend
+
+networks:
+  lifeplan-net:
+    driver: bridge
+    name: lifeplan-net
+
+volumes:
+  lifeplan-pgdata:
+    name: lifeplan-pgdata
+  lifeplan-mongodata:
+    name: lifeplan-mongodata
