@@ -1,14 +1,14 @@
 loadedout.online {
-    # Serve the React SPA
-    root * /usr/share/caddy
-    file_server
-
-    # SPA routing: if file not found, serve index.html
-    try_files {path} /index.html
-
     # Proxy API requests to the FastAPI backend
     handle /api/* {
-        # Backend runs on internal port 8000
         reverse_proxy backend:8000
     }
+
+    # Serve the React SPA (fallback)
+    handle {
+        root * /usr/share/caddy
+        try_files {path} /index.html
+        file_server
+    }
 }
+
