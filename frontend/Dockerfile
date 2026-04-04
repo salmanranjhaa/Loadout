@@ -15,9 +15,9 @@ RUN npm install
 COPY frontend/ .
 RUN npm run build
 
-FROM nginx:alpine
-COPY --from=build /app/dist /usr/share/nginx/html
-COPY infra/nginx.conf /etc/nginx/conf.d/default.conf
+FROM caddy:alpine
+COPY --from=build /app/dist /usr/share/caddy
+COPY infra/Caddyfile /etc/caddy/Caddyfile
 
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+EXPOSE 80 443
+CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]

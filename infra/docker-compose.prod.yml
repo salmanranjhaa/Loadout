@@ -81,6 +81,10 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
     networks:
       - lifeplan-net
     depends_on:
@@ -96,3 +100,7 @@ volumes:
     name: lifeplan-pgdata
   lifeplan-mongodata:
     name: lifeplan-mongodata
+  caddy_data:
+    name: lifeplan-caddy-data
+  caddy_config:
+    name: lifeplan-caddy-config
