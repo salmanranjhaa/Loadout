@@ -571,9 +571,11 @@ def _estimate_calories_with_details(
     avg_speed = _as_float(details.get("avg_speed_kmh"))
     avg_hr = _as_float(details.get("avg_hr_bpm"))
     elevation_m = _as_float(details.get("elevation_m"))
+    
+    safe_weight = _as_float(weight_kg) or 75.0
 
     if wt == "running" and distance_km and distance_km > 0:
-        by_distance = distance_km * weight_kg * 1.0
+        by_distance = distance_km * safe_weight * 1.0
         base = int(round((base + by_distance) / 2))
         basis.append(f"distance model ({distance_km:.1f} km)")
         if avg_pace:
@@ -590,7 +592,7 @@ def _estimate_calories_with_details(
         basis.append(f"cycling speed adjustment ({avg_speed:.1f} km/h)")
 
     if wt == "walking" and distance_km and distance_km > 0:
-        by_distance = distance_km * weight_kg * 0.6
+        by_distance = distance_km * safe_weight * 0.6
         base = int(round((base + by_distance) / 2))
         basis.append(f"walking distance model ({distance_km:.1f} km)")
 
@@ -923,7 +925,11 @@ async def calculate_macros_from_description(food_description: str) -> dict:
         response = await generate_content_with_fallback(
             contents=prompt,
             preferred_model=settings.VERTEX_AI_MODEL,
-            config=types.GenerateContentConfig(temperature=0.0, max_output_tokens=2048),
+            config=types.GenerateContentConfig(
+                temperature=0.0, 
+                max_output_tokens=2048,
+                response_mime_type="application/json"
+            ),
         )
         # I guard against None/empty response (safety filter, quota, or empty candidates)
         text = _response_text(response)
