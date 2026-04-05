@@ -687,10 +687,17 @@ async def _update_profile(conn: asyncpg.Connection, user_id: int, args: dict) ->
     values = []
     idx = 1
 
+    float_fields = {"current_weight_kg", "target_weight_kg", "height_cm"}
+    int_fields = {"age", "daily_calorie_target", "daily_protein_target", "daily_carb_target", "daily_fat_target"}
     for field in simple_fields:
         if field in args and args[field] is not None:
             updates.append(f"{field} = ${idx}")
-            values.append(args[field])
+            if field in float_fields:
+                values.append(_f(args[field]))
+            elif field in int_fields:
+                values.append(_i(args[field]))
+            else:
+                values.append(args[field])
             idx += 1
 
     for field in json_fields:
@@ -890,11 +897,11 @@ async def _add_meal_template(conn: asyncpg.Connection, user_id: int, args: dict)
         user_id,
         args["name"],
         args["meal_type"],
-        args["calories"],
-        args["protein_g"],
-        args.get("carbs_g"),
-        args.get("fat_g"),
-        args.get("fiber_g"),
+        _f(args["calories"]),
+        _f(args["protein_g"]),
+        _f(args.get("carbs_g")),
+        _f(args.get("fat_g")),
+        _f(args.get("fiber_g")),
         json.dumps(args["ingredients"]),
         args.get("prep_instructions"),
         _i(args.get("prep_time_minutes")),
@@ -953,10 +960,10 @@ async def _log_meal(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
         log_date,
         args["meal_type"],
         args["name"],
-        args["calories"],
-        args["protein_g"],
-        args.get("carbs_g"),
-        args.get("fat_g"),
+        _f(args["calories"]),
+        _f(args["protein_g"]),
+        _f(args.get("carbs_g")),
+        _f(args.get("fat_g")),
         _i(args.get("template_id")),
         json.dumps(args.get("custom_ingredients")) if args.get("custom_ingredients") else None,
         args.get("notes"),
@@ -1115,7 +1122,7 @@ async def _log_expense(conn: asyncpg.Connection, user_id: int, args: dict) -> di
         RETURNING id, amount, category, description, date
         """,
         user_id,
-        round(args["amount"], 2),
+        round(_f(args["amount"]), 2),
         args["category"].lower(),
         args.get("description"),
         log_date,
@@ -1216,7 +1223,7 @@ async def _add_inventory_item(conn: asyncpg.Connection, user_id: int, args: dict
         """,
         user_id,
         args["name"],
-        args["quantity"],
+        _f(args["quantity"]),
         args["unit"],
         args["category"],
     )
