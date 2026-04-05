@@ -10,6 +10,7 @@ import {
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const DAY_FULL = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 const EVENT_TYPES = ["routine", "meal", "exercise", "focus", "class", "social", "work"];
 
@@ -171,6 +172,13 @@ export default function SchedulePage() {
   const selectedDate = new Date(currentWeekMonday);
   selectedDate.setDate(currentWeekMonday.getDate() + selectedDay);
   const selectedDateISO = toISODate(selectedDate);
+
+  const weekEnd = new Date(currentWeekMonday);
+  weekEnd.setDate(currentWeekMonday.getDate() + 6);
+  const weekRangeLabel =
+    currentWeekMonday.getMonth() === weekEnd.getMonth()
+      ? `${currentWeekMonday.getDate()} – ${weekEnd.getDate()} ${MONTHS[weekEnd.getMonth()]}`
+      : `${currentWeekMonday.getDate()} ${MONTHS[currentWeekMonday.getMonth()]} – ${weekEnd.getDate()} ${MONTHS[weekEnd.getMonth()]}`;
   const hasCalendarAccess = !!googleStatus.connected;
   const googleAccountLinked = !!googleStatus.account_linked || hasCalendarAccess;
 
@@ -289,20 +297,30 @@ export default function SchedulePage() {
           <h1 className="text-xl font-bold bg-gradient-to-r from-emerald-400 to-blue-400 bg-clip-text text-transparent">
             Weekly Schedule
           </h1>
-          <div className="flex items-center gap-3 mt-1.5 mb-1">
-            <div className="flex items-center gap-1 bg-slate-800/80 rounded tracking-tight">
-              <button onClick={() => setWeekOffset(w => w - 1)} className="p-1 text-slate-400 hover:text-white rounded">
-                <ChevronLeft size={14} />
-              </button>
-              <p className="text-xs font-medium text-slate-300 w-[110px] text-center">
-                {DAY_FULL[selectedDay]} • {selectedDateISO}
-              </p>
-              <button onClick={() => setWeekOffset(w => w + 1)} className="p-1 text-slate-400 hover:text-white rounded">
-                <ChevronRight size={14} />
-              </button>
+          <div className="flex items-center gap-2 mt-2 mb-1">
+            <button
+              onClick={() => setWeekOffset(w => w - 1)}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 active:bg-slate-600 transition-colors"
+              aria-label="Previous week"
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <div className="text-center min-w-[120px]">
+              <p className="text-sm font-semibold text-slate-200">{weekRangeLabel}</p>
+              <p className="text-[10px] text-slate-500">{DAY_FULL[selectedDay]}</p>
             </div>
+            <button
+              onClick={() => setWeekOffset(w => w + 1)}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 active:bg-slate-600 transition-colors"
+              aria-label="Next week"
+            >
+              <ChevronRight size={18} />
+            </button>
             {weekOffset !== 0 && (
-              <button onClick={() => { setWeekOffset(0); setSelectedDay(todayIdx); }} className="text-[10px] px-2 py-0.5 rounded bg-blue-600/20 text-blue-300 hover:bg-blue-600/30">
+              <button
+                onClick={() => { setWeekOffset(0); setSelectedDay(todayIdx); }}
+                className="ml-1 text-[10px] px-2 py-1 rounded-lg bg-blue-600/20 text-blue-300 hover:bg-blue-600/30 transition-colors"
+              >
                 Today
               </button>
             )}
