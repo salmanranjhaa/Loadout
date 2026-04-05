@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { MapPin, ChevronDown, ChevronUp, Plus, Trash2, Edit2, Check, Link2, RefreshCw } from "lucide-react";
+import { MapPin, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Plus, Trash2, Edit2, Check, Link2, RefreshCw } from "lucide-react";
 import {
   authAPI,
   getGoogleOAuthOrigin,
@@ -39,12 +39,12 @@ function toISODate(d) {
   return `${y}-${m}-${day}`;
 }
 
-function mondayOfCurrentWeek() {
+function getMonday(offsetWeeks = 0) {
   const now = new Date();
   const day = (now.getDay() + 6) % 7; // Mon=0
   const monday = new Date(now);
   monday.setHours(0, 0, 0, 0);
-  monday.setDate(now.getDate() - day);
+  monday.setDate(now.getDate() - day + (offsetWeeks * 7));
   return monday;
 }
 
@@ -153,7 +153,8 @@ function EventForm({ initial, onSave, onCancel, saving }) {
 
 export default function SchedulePage() {
   const todayIdx = (new Date().getDay() + 6) % 7;
-  const currentWeekMonday = mondayOfCurrentWeek();
+  const [weekOffset, setWeekOffset] = useState(0);
+  const currentWeekMonday = getMonday(weekOffset);
   const [selectedDay, setSelectedDay] = useState(todayIdx);
   const [expandedId, setExpandedId] = useState(null);
   const [events, setEvents] = useState([]);
@@ -288,9 +289,24 @@ export default function SchedulePage() {
           <h1 className="text-xl font-bold bg-gradient-to-r from-emerald-400 to-blue-400 bg-clip-text text-transparent">
             Weekly Schedule
           </h1>
-          <p className="text-xs text-slate-500 mt-1">
-            {DAY_FULL[selectedDay]} • {selectedDateISO}
-          </p>
+          <div className="flex items-center gap-3 mt-1.5 mb-1">
+            <div className="flex items-center gap-1 bg-slate-800/80 rounded tracking-tight">
+              <button onClick={() => setWeekOffset(w => w - 1)} className="p-1 text-slate-400 hover:text-white rounded">
+                <ChevronLeft size={14} />
+              </button>
+              <p className="text-xs font-medium text-slate-300 w-[110px] text-center">
+                {DAY_FULL[selectedDay]} • {selectedDateISO}
+              </p>
+              <button onClick={() => setWeekOffset(w => w + 1)} className="p-1 text-slate-400 hover:text-white rounded">
+                <ChevronRight size={14} />
+              </button>
+            </div>
+            {weekOffset !== 0 && (
+              <button onClick={() => { setWeekOffset(0); setSelectedDay(todayIdx); }} className="text-[10px] px-2 py-0.5 rounded bg-blue-600/20 text-blue-300 hover:bg-blue-600/30">
+                Today
+              </button>
+            )}
+          </div>
           <p className="text-[10px] text-slate-600 mt-1">
             {hasCalendarAccess
               ? `Google Calendar linked${googleStatus.google_email ? `: ${googleStatus.google_email}` : ""}`
@@ -344,7 +360,7 @@ export default function SchedulePage() {
             }`}
           >
             {d}
-            {i === todayIdx && selectedDay !== i && (
+            {i === todayIdx && weekOffset === 0 && selectedDay !== i && (
               <span className="ml-1 inline-block w-1.5 h-1.5 bg-emerald-400 rounded-full" />
             )}
           </button>

@@ -81,7 +81,7 @@ export default function App() {
     <div className="min-h-screen bg-bg pb-20 safe-top">
       <button
         onClick={handleLogout}
-        className="fixed top-3 right-3 z-50 flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-900/80 px-2 py-1 text-[10px] text-slate-300 hover:text-white"
+        className="fixed top-12 right-4 z-50 flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-900/80 px-2 py-1 text-[10px] text-slate-300 hover:text-white"
       >
         <LogOut size={12} />
         Logout
