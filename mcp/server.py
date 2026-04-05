@@ -10,7 +10,7 @@ Connect via SSE at: http://<VM_IP>:8003/sse
 import asyncio
 import json
 import os
-from datetime import date as date_cls, datetime
+from datetime import date as date_cls, datetime, time as time_cls
 from typing import Any, Optional
 
 import asyncpg
@@ -59,6 +59,17 @@ def _serialize(val: Any) -> Any:
     if isinstance(val, (date_cls, datetime)):
         return val.isoformat()
     return val
+
+
+def _parse_time(t) -> time_cls:
+    """I convert a time string (HH:MM or HH:MM:SS) to a datetime.time object.
+    asyncpg requires a proper time_cls instance, not a raw string."""
+    if isinstance(t, time_cls):
+        return t
+    parts = str(t).strip().split(":")
+    h, m = int(parts[0]), int(parts[1])
+    s = int(parts[2]) if len(parts) > 2 else 0
+    return time_cls(h, m, s)
 
 
 server = Server("loadout")
@@ -750,13 +761,18 @@ async def _add_schedule_event(conn: asyncpg.Connection, user_id: int, args: dict
     if args.get("specific_date"):
         specific_date = date_cls.fromisoformat(args["specific_date"])
 
+    # I convert time strings to datetime.time objects because asyncpg requires
+    # proper time instances, not raw strings, even with ::time casts in the query.
+    start_time = _parse_time(args["start_time"])
+    end_time = _parse_time(args["end_time"])
+
     row = await conn.fetchrow(
         """
         INSERT INTO schedule_events
             (user_id, title, description, event_type, day_of_week, start_time, end_time,
              location, recurrence, specific_date, event_data, is_active)
         VALUES
-            ($1, $2, $3, $4, $5, $6::time, $7::time, $8, $9, $10, $11::jsonb, true)
+            ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, true)
         RETURNING id, title, event_type, day_of_week, start_time, end_time
         """,
         user_id,
@@ -764,8 +780,8 @@ async def _add_schedule_event(conn: asyncpg.Connection, user_id: int, args: dict
         args.get("description"),
         args["event_type"],
         _i(args.get("day_of_week")),
-        args["start_time"],
-        args["end_time"],
+        start_time,
+        end_time,
         args.get("location"),
         args.get("recurrence", "weekly"),
         specific_date,
@@ -807,8 +823,8 @@ async def _update_schedule_event(conn: asyncpg.Connection, user_id: int, args: d
 
     for tf in time_fields:
         if tf in args and args[tf]:
-            updates.append(f"{tf} = ${idx}::time")
-            values.append(args[tf])
+            updates.append(f"{tf} = ${idx}")
+            values.append(_parse_time(args[tf]))
             idx += 1
 
     for jf in json_fields:
