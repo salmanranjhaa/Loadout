@@ -814,7 +814,9 @@ async def _get_macro_summary(conn: asyncpg.Connection, user_id: int, args: dict)
 # ---- Starlette ASGI app with SSE transport ----
 
 def build_app() -> Starlette:
-    sse = SseServerTransport("/messages/")
+    # I use the full /mcp/messages/ path so Claude's app knows the correct POST URL
+    # when connecting through the Caddy reverse proxy at loadedout.online/mcp/*
+    sse = SseServerTransport("/mcp/messages/")
 
     async def handle_sse(request: Request) -> Response:
         async with sse.connect_sse(
@@ -825,14 +827,10 @@ def build_app() -> Starlette:
             )
         return Response()
 
-    async def handle_messages(request: Request) -> Response:
-        await sse.handle_post_message(request.scope, request.receive, request._send)
-        return Response()
-
     return Starlette(
         routes=[
-            Route("/sse", endpoint=handle_sse),
-            Mount("/messages/", app=sse.handle_post_message),
+            Route("/mcp/sse", endpoint=handle_sse),
+            Mount("/mcp/messages/", app=sse.handle_post_message),
         ]
     )
 
