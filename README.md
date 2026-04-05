@@ -1,74 +1,136 @@
-# Loadout
+# Loadout — Personal Routine & Nutrition Assistant
 
-Loadout is a comprehensive, AI-driven personal routine, fitness, and nutrition assistant. It allows users to orchestrate their weekly schedule, automatically track meals and macronutrients via AI estimation, analyze workouts, and maintain personal budgets.
+A production-grade, multi-platform personal assistant for tracking weekly schedules, logging meals via AI macronutrient estimation, and analyzing workouts. 
 
-## System Architecture
+The platform ships as both a progressive web application (PWA) and a native Android application using Capacitor, backed by a unified Python API.
 
-```mermaid
-graph TD
-    Client[Client Devices<br>React / Capacitor]
-    Proxy[Caddy Reverse Proxy<br>TLS / HTTPS]
-    API[FastAPI Backend Service]
-    SQL[(PostgreSQL Database<br>Relational State)]
-    Mongo[(MongoDB<br>Unstructured / Chat Logs)]
-    AI[Vertex AI<br>Gemini Analysis Pipeline]
-    GCal[Google Calendar API]
+[![Python](https://img.shields.io/badge/Python-3.10-blue?logo=python)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green?logo=fastapi)](https://fastapi.tiangolo.com)
+[![React](https://img.shields.io/badge/React-18-blue?logo=react)](https://react.dev)
+[![Capacitor](https://img.shields.io/badge/Capacitor-v8-blue)](https://capacitorjs.com/)
+[![Gemini](https://img.shields.io/badge/LLM-Vertex%20AI-orange)](https://cloud.google.com/vertex-ai)
+[![Docker](https://img.shields.io/badge/Docker-Compose-blue?logo=docker)](https://docker.com)
 
-    Client -->|REST / HTTPS| Proxy
-    Proxy --> API
-    API -->|Read / Write| SQL
-    API -->|Read / Write| Mongo
-    API -->|Prompt & Parse| AI
-    API -->|OAuth 2.0| GCal
+---
+
+## Overview
+
+Built to centralize daily habits, Loadout uses Vertex AI (Gemini) to remove the friction from health tracking. 
+
+Example features:
+- **Instant Nutrition**: Tell the AI *"I ate 200g of grilled chicken and some rice"* and it automatically estimates Calories, Protein, Carbs, and Fats.
+- **Smart Workouts**: Log gym routines and receive structured fitness performance checks.
+- **Unified Scheduling**: A weekly calendar synced directly with Google Calendar via OAuth 2.0.
+
+---
+
+## Architecture
+
+```text
+┌──────────────────────────────────────────────────────────────────────┐
+│                              GCP Compute Engine                      │
+│                                                                      │
+│  ┌─────────────────────────┐                                         │
+│  │  Caddy (Reverse Proxy)  │                                         │
+│  │  :443 / HTTPS           │                                         │
+│  └────────────┬────────────┘                                         │
+│               │                                                      │
+│  ┌────────────▼────────────┐        ┌──────────────────────────┐     │
+│  │  FastAPI Backend        │───────▶│ Vertex AI (Gemini Flash) │     │
+│  │  :8000                  │        └──────────────────────────┘     │
+│  └──────┬────────────┬─────┘                                         │
+│         │            │                                               │
+│  ┌──────▼─────┐ ┌────▼───────┐      ┌──────────────────────────┐     │
+│  │ PostgreSQL │ │  MongoDB   │      │ Client App (Capacitor)   │     │
+│  │ (State)    │ │ (Messages) │      │ Android / iOS / Web      │     │
+│  └────────────┘ └────────────┘      └──────────────────────────┘     │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
-## Key Features
+---
 
-- **Automated Scheduling**: View all events in an infinite scrolling calendar. Connects securely with the Google Calendar API for automatic synchronization.
-- **AI Nutrition Parsing**: A zero-friction logging mechanism. Users input natural language descriptions of their meals ("150g chicken and some rice"), and the Gemini backend instantly estimates structured macronutrients (Calories, Protein, Carbs, Fat).
-- **Intelligent Workout Logging**: Track cardio and lifting routines. Features AI fallback checks to ensure correct fitness data validation.
-- **Cross-Platform Delivery**: Deployable as a web PWA and fully bundled as a native Android application using Capacitor.
-- **Secure Authentication**: Includes custom JWT session management, role-based admin controls, and native Google OAuth pipelines.
+## Features
 
-## Technology Stack
+- **Automated Scheduling** — View and control calendar events with infinite scrolling.
+- **AI Nutrition Parsing** — Zero-friction macro logging via natural language processing.
+- **Cross-Platform Native Wrapper** — Deploys as a web app or as a bundled native Android/iOS app.
+- **Role-Based Auth** — Custom JWT session management paired with native Google OAuth pipelines.
 
-### Backend
-- **Framework**: FastAPI (Python 3.10+)
-- **Databases**: PostgreSQL (Async SQLAlchemy) & MongoDB (Motor)
-- **AI Integration**: Google Cloud Vertex AI (gemini-1.5-flash / gemini-2.0-flash-001)
-- **Infrastructure**: Docker Compose, Caddy Server
+---
 
-### Frontend / Mobile
-- **Core**: React 18, Vite
-- **Styling**: TailwindCSS
-- **Native Wrapper**: Ionic Capacitor (v8)
-- **PWA Integration**: vite-plugin-pwa
+## Tech Stack
 
-## Deployment Guide
+| Layer | Technology |
+|---|---|
+| Backend | Python 3.10+, FastAPI |
+| AI | Google Vertex AI (`gemini-1.5-flash` / `gemini-2.0-flash`) |
+| Structured DB | PostgreSQL (Async SQLAlchemy) |
+| Document DB | MongoDB (Motor) |
+| Frontend | React 18, Vite, TailwindCSS |
+| Native Wrapper | Ionic Capacitor |
+| Containerization | Docker Compose, Caddy Server |
 
-The application utilizes Docker Compose for highly reproducible infrastructure management. 
+---
 
-### Environment Configuration
-The backend container requires several critical environment variables. Example `.env.prod`:
-```ini
+## Project Structure
+
+```text
+loadout/
+├── backend/
+│   ├── app/                      # FastAPI core application
+│   │   ├── api/                  # REST endpoints (auth, meals, schedule)
+│   │   ├── core/                 # Config and security
+│   │   └── services/             # AI processing pipelines
+│   ├── requirements.txt
+│   └── Dockerfile
+├── frontend/
+│   ├── src/                      # React SPA
+│   ├── android/                  # Capacitor native Android bundle
+│   ├── capacitor.config.json     # Interop config
+│   ├── package.json
+│   └── Dockerfile
+├── infra/
+│   ├── docker-compose.prod.yml   # Production compose
+│   └── Caddyfile                 # SSL Proxy config
+└── README.md
+```
+
+---
+
+## Quick Start
+
+### 1. Configure the Environment
+Ensure your `.env.prod` is populated inside the `infra/` directory:
+
+```env
 APP_NAME=Loadout
 DEBUG=false
-DATABASE_URL=postgresql+asyncpg://user:password@/db...
-SECRET_KEY=long_secure_string_here
-ALLOWED_ORIGINS=https://loadedout.online,http://localhost,capacitor://localhost
-GCP_PROJECT_ID=your-project-id
+DATABASE_URL=postgresql+asyncpg://user:password@db:5432/db
+SECRET_KEY=secure_long_string
+ALLOWED_ORIGINS=https://loadedout.online,capacitor://localhost,http://localhost
+GCP_PROJECT_ID=your-gcp-project
 VERTEX_AI_MODEL=gemini-1.5-flash
 ```
 
-### Starting Production Services
-1. Ensure the databases (`mongo`, `db`) are actively running within the `docker-compose.prod.yml`.
-2. Construct and detach the containers using the production environment file:
+### 2. Start the Deployment
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build backend
+cd infra/
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 ```
+Navigate to your application port or configured Caddy domain.
 
-## Repository Structure
+---
 
-- `/backend`: Core Python FastAPI application, REST endpoints, and SQLAlchemy ORMs.
-- `/frontend`: The React UI along with the Capacitor bundle output (`/android`).
-- `/infra`: Docker compose files and production proxy configurations.
+## Useful Commands
+
+```bash
+# Sync frontend changes to the Android Capacitor build
+npm run cap:sync
+
+# View backend production logs
+docker compose -f docker-compose.prod.yml logs -f backend
+
+# Update and restart containers
+git pull
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+```
