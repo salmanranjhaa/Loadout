@@ -140,7 +140,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "user_email": {"type": "string"},
                     "day_of_week": {
-                        "type": "number",
+                        "description": "numeric value",
                         "minimum": 0,
                         "maximum": 6,
                         "description": "0=Monday, 6=Sunday",
@@ -171,7 +171,7 @@ async def list_tools() -> list[Tool]:
                         "enum": ["routine", "meal", "exercise", "focus", "class", "social", "work"],
                     },
                     "day_of_week": {
-                        "type": "number",
+                        "description": "numeric value",
                         "minimum": 0,
                         "maximum": 6,
                         "description": "0=Monday, required for weekly/biweekly events",
