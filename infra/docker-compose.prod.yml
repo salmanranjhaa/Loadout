@@ -60,7 +60,7 @@ services:
       MONGODB_DB_NAME: "lifeplan"
       GOOGLE_APPLICATION_CREDENTIALS: "/app/adc.json"
     volumes:
-      - /home/salma/.config/gcloud/application_default_credentials.json:/app/adc.json:ro
+      - ${ADC_PATH:-/home/salma/.config/gcloud/application_default_credentials.json}:/app/adc.json:ro
     ports:
       - "8002:8000"
     networks:

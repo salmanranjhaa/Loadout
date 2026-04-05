@@ -43,19 +43,33 @@ services:
       DATABASE_URL_SYNC: "postgresql+psycopg2://lifeplan_user:changeme@db:5432/lifeplan_db"
       MONGODB_URI: "mongodb://mongo:27017"
       MONGODB_DB_NAME: "lifeplan"
-      GCP_PROJECT_ID: "${GCP_PROJECT_ID}"
+      GCP_PROJECT_ID: "${GCP_PROJECT_ID:-iri-gemini}"
       GCP_REGION: "europe-west6"
       VERTEX_AI_MODEL: "gemini-2.5-flash"
       # I mount ADC credentials for Vertex AI access in Docker
       GOOGLE_APPLICATION_CREDENTIALS: "/app/adc.json"
     volumes:
-      - ${ADC_PATH}:/app/adc.json:ro
+      - ${ADC_PATH:-/home/salma/.config/gcloud/application_default_credentials.json}:/app/adc.json:ro
     ports:
       - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
       mongo:
+        condition: service_healthy
+
+  mcp:
+    build:
+      context: ..
+      dockerfile: mcp/Dockerfile
+    restart: unless-stopped
+    environment:
+      MCP_DATABASE_URL: "postgresql://lifeplan_user:changeme@db:5432/lifeplan_db"
+      MCP_PORT: "8003"
+    ports:
+      - "8003:8003"
+    depends_on:
+      db:
         condition: service_healthy
 
   # I build the React frontend and serve it via nginx
