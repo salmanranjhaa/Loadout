@@ -443,6 +443,107 @@ async def list_tools() -> list[Tool]:
                 "required": ["user_email", "item_id"],
             },
         ),
+        Tool(
+            name="log_workout",
+            description=(
+                "Log a completed workout session. "
+                "workout_type: crossfit, running, football, yoga, cycling, stretch, "
+                "swimming, hiit, walking, boxing, pilates, climbing, trx, other. "
+                "intensity: light, moderate, intense. "
+                "exercises: list of exercise objects with name and optional sets/reps/notes. "
+                "energy_level: 1-10 scale."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "workout_type": {"type": "string"},
+                    "duration_minutes": {"type": "integer"},
+                    "intensity": {"type": "string", "enum": ["light", "moderate", "intense"]},
+                    "description": {"type": "string"},
+                    "exercises": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": 'e.g. [{"name": "Pull-ups", "sets": 4, "reps": 8}]',
+                    },
+                    "calories_burned_est": {"type": "integer"},
+                    "energy_level": {"type": "integer", "minimum": 1, "maximum": 10},
+                    "date": {"type": "string", "description": "YYYY-MM-DD, defaults to today"},
+                },
+                "required": ["user_email", "workout_type", "duration_minutes", "intensity"],
+            },
+        ),
+        Tool(
+            name="get_workouts",
+            description="Get workout history for the last N days (default 30).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "days": {"type": "integer", "default": 30},
+                },
+                "required": ["user_email"],
+            },
+        ),
+        Tool(
+            name="get_workout_stats",
+            description="Get workout stats for this week and this month: count, total minutes, calories, types.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                },
+                "required": ["user_email"],
+            },
+        ),
+        Tool(
+            name="log_expense",
+            description=(
+                "Log a budget expense. "
+                "category: food, transport, uni, health, entertainment, shopping, other."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "amount": {"type": "number"},
+                    "category": {
+                        "type": "string",
+                        "enum": ["food", "transport", "uni", "health", "entertainment", "shopping", "other"],
+                    },
+                    "description": {"type": "string"},
+                    "date": {"type": "string", "description": "YYYY-MM-DD, defaults to today"},
+                },
+                "required": ["user_email", "amount", "category"],
+            },
+        ),
+        Tool(
+            name="get_expenses",
+            description="Get budget entries for a period: 'week', 'month', or a number of days as string.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "period": {
+                        "type": "string",
+                        "description": "'week', 'month', or number of days e.g. '14'",
+                        "default": "week",
+                    },
+                },
+                "required": ["user_email"],
+            },
+        ),
+        Tool(
+            name="get_budget_summary",
+            description="Get aggregated budget stats: this week, last week, this month, broken down by category.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                },
+                "required": ["user_email"],
+            },
+        ),
     ]
 
 
@@ -512,6 +613,24 @@ async def _dispatch(name: str, args: dict, conn: asyncpg.Connection) -> Any:
 
     if name == "delete_inventory_item":
         return await _delete_inventory_item(conn, user_id, args)
+
+    if name == "log_workout":
+        return await _log_workout(conn, user_id, args)
+
+    if name == "get_workouts":
+        return await _get_workouts(conn, user_id, args)
+
+    if name == "get_workout_stats":
+        return await _get_workout_stats(conn, user_id, args)
+
+    if name == "log_expense":
+        return await _log_expense(conn, user_id, args)
+
+    if name == "get_expenses":
+        return await _get_expenses(conn, user_id, args)
+
+    if name == "get_budget_summary":
+        return await _get_budget_summary(conn, user_id, args)
 
     raise ValueError(f"Unknown tool: {name}")
 
@@ -889,6 +1008,157 @@ async def _get_macro_summary(conn: asyncpg.Connection, user_id: int, args: dict)
             "carbs_g": _remaining(carbs, targets["daily_carb_target"]),
             "fat_g": _remaining(fat, targets["daily_fat_target"]),
         },
+    }
+
+
+async def _log_workout(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    log_date = date_cls.fromisoformat(args["date"]) if args.get("date") else date_cls.today()
+    details = {}
+    if args.get("exercises"):
+        details["exercises"] = args["exercises"]
+
+    row = await conn.fetchrow(
+        """
+        INSERT INTO workout_logs
+            (user_id, date, workout_type, duration_minutes, intensity,
+             notes, details, calories_burned_est, energy_level)
+        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
+        RETURNING id, date, workout_type, duration_minutes, intensity, calories_burned_est
+        """,
+        user_id,
+        log_date,
+        args["workout_type"].lower(),
+        args["duration_minutes"],
+        args["intensity"],
+        args.get("description"),
+        json.dumps(details) if details else json.dumps({}),
+        args.get("calories_burned_est"),
+        args.get("energy_level"),
+    )
+    return {"status": "logged", "workout": _serialize(row)}
+
+
+async def _get_workouts(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    from datetime import timedelta
+    days = args.get("days", 30)
+    start = date_cls.today() - timedelta(days=days)
+    rows = await conn.fetch(
+        """
+        SELECT id, date, workout_type, duration_minutes, intensity,
+               calories_burned_est, notes, energy_level
+        FROM workout_logs
+        WHERE user_id = $1 AND date >= $2
+        ORDER BY date DESC
+        """,
+        user_id, start,
+    )
+    return {"workouts": [_serialize(r) for r in rows], "total": len(rows)}
+
+
+async def _get_workout_stats(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    from datetime import timedelta
+    today = date_cls.today()
+    week_start = today - timedelta(days=today.weekday())
+    month_start = today.replace(day=1)
+
+    week_rows = await conn.fetch(
+        "SELECT duration_minutes, calories_burned_est, workout_type FROM workout_logs WHERE user_id=$1 AND date>=$2",
+        user_id, week_start,
+    )
+    month_rows = await conn.fetch(
+        "SELECT duration_minutes, calories_burned_est FROM workout_logs WHERE user_id=$1 AND date>=$2",
+        user_id, month_start,
+    )
+    return {
+        "this_week": {
+            "count": len(week_rows),
+            "total_minutes": sum(r["duration_minutes"] for r in week_rows),
+            "total_calories": sum(r["calories_burned_est"] or 0 for r in week_rows),
+            "types": list(set(r["workout_type"] for r in week_rows)),
+        },
+        "this_month": {
+            "count": len(month_rows),
+            "total_minutes": sum(r["duration_minutes"] for r in month_rows),
+            "total_calories": sum(r["calories_burned_est"] or 0 for r in month_rows),
+        },
+    }
+
+
+async def _log_expense(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    log_date = date_cls.fromisoformat(args["date"]) if args.get("date") else date_cls.today()
+    row = await conn.fetchrow(
+        """
+        INSERT INTO budget_entries (user_id, amount, category, description, date)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id, amount, category, description, date
+        """,
+        user_id,
+        round(args["amount"], 2),
+        args["category"].lower(),
+        args.get("description"),
+        log_date,
+    )
+    return {"status": "logged", "entry": _serialize(row)}
+
+
+async def _get_expenses(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    from datetime import timedelta
+    period = args.get("period", "week")
+    today = date_cls.today()
+    if period == "week":
+        start = today - timedelta(days=today.weekday())
+    elif period == "month":
+        start = today.replace(day=1)
+    else:
+        start = today - timedelta(days=int(period) if str(period).isdigit() else 30)
+
+    rows = await conn.fetch(
+        """
+        SELECT id, amount, category, description, date
+        FROM budget_entries WHERE user_id=$1 AND date>=$2
+        ORDER BY date DESC
+        """,
+        user_id, start,
+    )
+    total = round(sum(r["amount"] for r in rows), 2)
+    return {"entries": [_serialize(r) for r in rows], "total": total, "period": period}
+
+
+async def _get_budget_summary(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    from datetime import timedelta
+    today = date_cls.today()
+    week_start = today - timedelta(days=today.weekday())
+    prev_week_start = week_start - timedelta(days=7)
+    month_start = today.replace(day=1)
+
+    week_rows = await conn.fetch(
+        "SELECT amount, category, date FROM budget_entries WHERE user_id=$1 AND date>=$2",
+        user_id, week_start,
+    )
+    prev_rows = await conn.fetch(
+        "SELECT amount FROM budget_entries WHERE user_id=$1 AND date>=$2 AND date<$3",
+        user_id, prev_week_start, week_start,
+    )
+    month_rows = await conn.fetch(
+        "SELECT amount FROM budget_entries WHERE user_id=$1 AND date>=$2",
+        user_id, month_start,
+    )
+
+    by_category: dict = {}
+    daily: dict = {}
+    for r in week_rows:
+        by_category[r["category"]] = round(by_category.get(r["category"], 0) + r["amount"], 2)
+        d = str(r["date"])
+        daily[d] = round(daily.get(d, 0) + r["amount"], 2)
+
+    return {
+        "this_week": {
+            "total": round(sum(r["amount"] for r in week_rows), 2),
+            "by_category": by_category,
+            "daily": daily,
+        },
+        "last_week": {"total": round(sum(r["amount"] for r in prev_rows), 2)},
+        "this_month": {"total": round(sum(r["amount"] for r in month_rows), 2)},
     }
 
 
