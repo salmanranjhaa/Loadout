@@ -778,7 +778,7 @@ async def _add_schedule_event(conn: asyncpg.Connection, user_id: int, args: dict
         user_id,
         args["title"],
         args.get("description"),
-        args["event_type"],
+        args["event_type"].upper(),
         _i(args.get("day_of_week")),
         start_time,
         end_time,
