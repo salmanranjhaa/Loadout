@@ -374,6 +374,75 @@ async def list_tools() -> list[Tool]:
                 "required": ["user_email"],
             },
         ),
+        Tool(
+            name="get_inventory",
+            description="Get all current inventory items for a user, optionally filtered by category.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "category": {
+                        "type": "string",
+                        "enum": ["protein", "carbs", "veggies", "dairy", "spices", "fats", "other"],
+                        "description": "Optional category filter",
+                    },
+                },
+                "required": ["user_email"],
+            },
+        ),
+        Tool(
+            name="add_inventory_item",
+            description=(
+                "Add a food item to the user's home inventory. "
+                "unit should be one of: g, kg, pieces, tbsp, cups, L, ml, cans. "
+                "category should be one of: protein, carbs, veggies, dairy, spices, fats, other."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "name": {"type": "string"},
+                    "quantity": {"type": "number"},
+                    "unit": {
+                        "type": "string",
+                        "enum": ["g", "kg", "pieces", "tbsp", "cups", "L", "ml", "cans"],
+                    },
+                    "category": {
+                        "type": "string",
+                        "enum": ["protein", "carbs", "veggies", "dairy", "spices", "fats", "other"],
+                    },
+                },
+                "required": ["user_email", "name", "quantity", "unit", "category"],
+            },
+        ),
+        Tool(
+            name="update_inventory_item",
+            description="Update the quantity (or other fields) of an existing inventory item by ID.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "item_id": {"type": "integer"},
+                    "name": {"type": "string"},
+                    "quantity": {"type": "number"},
+                    "unit": {"type": "string"},
+                    "category": {"type": "string"},
+                },
+                "required": ["user_email", "item_id"],
+            },
+        ),
+        Tool(
+            name="delete_inventory_item",
+            description="Remove an item from the user's inventory by ID.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "item_id": {"type": "integer"},
+                },
+                "required": ["user_email", "item_id"],
+            },
+        ),
     ]
 
 
@@ -431,6 +500,18 @@ async def _dispatch(name: str, args: dict, conn: asyncpg.Connection) -> Any:
 
     if name == "get_macro_summary":
         return await _get_macro_summary(conn, user_id, args)
+
+    if name == "get_inventory":
+        return await _get_inventory(conn, user_id, args)
+
+    if name == "add_inventory_item":
+        return await _add_inventory_item(conn, user_id, args)
+
+    if name == "update_inventory_item":
+        return await _update_inventory_item(conn, user_id, args)
+
+    if name == "delete_inventory_item":
+        return await _delete_inventory_item(conn, user_id, args)
 
     raise ValueError(f"Unknown tool: {name}")
 
@@ -809,6 +890,85 @@ async def _get_macro_summary(conn: asyncpg.Connection, user_id: int, args: dict)
             "fat_g": _remaining(fat, targets["daily_fat_target"]),
         },
     }
+
+
+async def _get_inventory(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    category = args.get("category")
+    if category:
+        rows = await conn.fetch(
+            """
+            SELECT id, name, quantity, unit, category, created_at
+            FROM inventory_items WHERE user_id = $1 AND category = $2
+            ORDER BY category, name
+            """,
+            user_id, category,
+        )
+    else:
+        rows = await conn.fetch(
+            """
+            SELECT id, name, quantity, unit, category, created_at
+            FROM inventory_items WHERE user_id = $1
+            ORDER BY category, name
+            """,
+            user_id,
+        )
+    return {"items": [_serialize(r) for r in rows], "count": len(rows)}
+
+
+async def _add_inventory_item(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    row = await conn.fetchrow(
+        """
+        INSERT INTO inventory_items (user_id, name, quantity, unit, category)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id, name, quantity, unit, category
+        """,
+        user_id,
+        args["name"],
+        args["quantity"],
+        args["unit"],
+        args["category"],
+    )
+    return {"status": "added", "item": _serialize(row)}
+
+
+async def _update_inventory_item(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    item_id = args["item_id"]
+    exists = await conn.fetchval(
+        "SELECT id FROM inventory_items WHERE id = $1 AND user_id = $2",
+        item_id, user_id,
+    )
+    if not exists:
+        raise ValueError(f"Inventory item {item_id} not found for this user.")
+
+    cols = ["name", "quantity", "unit", "category"]
+    updates, values = [], []
+    idx = 1
+    for col in cols:
+        if col in args and args[col] is not None:
+            updates.append(f"{col} = ${idx}")
+            values.append(args[col])
+            idx += 1
+
+    if not updates:
+        return {"status": "no_changes"}
+
+    updates.append("updated_at = now()")
+    values.append(item_id)
+    await conn.execute(
+        f"UPDATE inventory_items SET {', '.join(updates)} WHERE id = ${idx}",
+        *values,
+    )
+    return {"status": "updated", "item_id": item_id}
+
+
+async def _delete_inventory_item(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    result = await conn.execute(
+        "DELETE FROM inventory_items WHERE id = $1 AND user_id = $2",
+        args["item_id"], user_id,
+    )
+    if result == "DELETE 0":
+        raise ValueError(f"Inventory item {args['item_id']} not found for this user.")
+    return {"status": "deleted", "item_id": args["item_id"]}
 
 
 # ---- Starlette ASGI app with SSE transport ----
