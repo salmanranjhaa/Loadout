@@ -97,12 +97,12 @@ async def list_tools() -> list[Tool]:
                     "current_weight_kg": {"type": "number"},
                     "target_weight_kg": {"type": "number"},
                     "height_cm": {"type": "number"},
-                    "age": {"type": "integer"},
+                    "age": {"type": "number"},
                     "gender": {"type": "string"},
-                    "daily_calorie_target": {"type": "integer"},
-                    "daily_protein_target": {"type": "integer"},
-                    "daily_carb_target": {"type": "integer"},
-                    "daily_fat_target": {"type": "integer"},
+                    "daily_calorie_target": {"type": "number"},
+                    "daily_protein_target": {"type": "number"},
+                    "daily_carb_target": {"type": "number"},
+                    "daily_fat_target": {"type": "number"},
                     "dietary_preferences": {
                         "type": "object",
                         "description": (
@@ -140,7 +140,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "user_email": {"type": "string"},
                     "day_of_week": {
-                        "type": "integer",
+                        "type": "number",
                         "minimum": 0,
                         "maximum": 6,
                         "description": "0=Monday, 6=Sunday",
@@ -171,7 +171,7 @@ async def list_tools() -> list[Tool]:
                         "enum": ["routine", "meal", "exercise", "focus", "class", "social", "work"],
                     },
                     "day_of_week": {
-                        "type": "integer",
+                        "type": "number",
                         "minimum": 0,
                         "maximum": 6,
                         "description": "0=Monday, required for weekly/biweekly events",
@@ -204,11 +204,11 @@ async def list_tools() -> list[Tool]:
                 "type": "object",
                 "properties": {
                     "user_email": {"type": "string"},
-                    "event_id": {"type": "integer"},
+                    "event_id": {"type": "number"},
                     "title": {"type": "string"},
                     "start_time": {"type": "string", "description": "HH:MM"},
                     "end_time": {"type": "string", "description": "HH:MM"},
-                    "day_of_week": {"type": "integer", "minimum": 0, "maximum": 6},
+                    "day_of_week": {"type": "number", "minimum": 0, "maximum": 6},
                     "description": {"type": "string"},
                     "location": {"type": "string"},
                     "event_data": {"type": "object"},
@@ -228,7 +228,7 @@ async def list_tools() -> list[Tool]:
                 "type": "object",
                 "properties": {
                     "user_email": {"type": "string"},
-                    "event_id": {"type": "integer"},
+                    "event_id": {"type": "number"},
                     "reason": {"type": "string"},
                 },
                 "required": ["user_email", "event_id"],
@@ -281,7 +281,7 @@ async def list_tools() -> list[Tool]:
                         ),
                     },
                     "prep_instructions": {"type": "string"},
-                    "prep_time_minutes": {"type": "integer"},
+                    "prep_time_minutes": {"type": "number"},
                 },
                 "required": ["user_email", "name", "meal_type", "calories", "protein_g", "ingredients"],
             },
@@ -293,7 +293,7 @@ async def list_tools() -> list[Tool]:
                 "type": "object",
                 "properties": {
                     "user_email": {"type": "string"},
-                    "template_id": {"type": "integer"},
+                    "template_id": {"type": "number"},
                     "name": {"type": "string"},
                     "calories": {"type": "number"},
                     "protein_g": {"type": "number"},
@@ -302,7 +302,7 @@ async def list_tools() -> list[Tool]:
                     "fiber_g": {"type": "number"},
                     "ingredients": {"type": "array", "items": {"type": "object"}},
                     "prep_instructions": {"type": "string"},
-                    "prep_time_minutes": {"type": "integer"},
+                    "prep_time_minutes": {"type": "number"},
                     "is_active": {"type": "boolean"},
                 },
                 "required": ["user_email", "template_id"],
@@ -332,7 +332,7 @@ async def list_tools() -> list[Tool]:
                         "description": "YYYY-MM-DD, defaults to today if omitted",
                     },
                     "notes": {"type": "string"},
-                    "template_id": {"type": "integer"},
+                    "template_id": {"type": "number"},
                     "custom_ingredients": {
                         "type": "array",
                         "items": {"type": "object"},
@@ -422,7 +422,7 @@ async def list_tools() -> list[Tool]:
                 "type": "object",
                 "properties": {
                     "user_email": {"type": "string"},
-                    "item_id": {"type": "integer"},
+                    "item_id": {"type": "number"},
                     "name": {"type": "string"},
                     "quantity": {"type": "number"},
                     "unit": {"type": "string"},
@@ -438,7 +438,7 @@ async def list_tools() -> list[Tool]:
                 "type": "object",
                 "properties": {
                     "user_email": {"type": "string"},
-                    "item_id": {"type": "integer"},
+                    "item_id": {"type": "number"},
                 },
                 "required": ["user_email", "item_id"],
             },
@@ -458,7 +458,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "user_email": {"type": "string"},
                     "workout_type": {"type": "string"},
-                    "duration_minutes": {"type": "integer"},
+                    "duration_minutes": {"type": "number"},
                     "intensity": {"type": "string", "enum": ["light", "moderate", "intense"]},
                     "description": {"type": "string"},
                     "exercises": {
@@ -466,8 +466,8 @@ async def list_tools() -> list[Tool]:
                         "items": {"type": "object"},
                         "description": 'e.g. [{"name": "Pull-ups", "sets": 4, "reps": 8}]',
                     },
-                    "calories_burned_est": {"type": "integer"},
-                    "energy_level": {"type": "integer", "minimum": 1, "maximum": 10},
+                    "calories_burned_est": {"type": "number"},
+                    "energy_level": {"type": "number", "minimum": 1, "maximum": 10},
                     "date": {"type": "string", "description": "YYYY-MM-DD, defaults to today"},
                 },
                 "required": ["user_email", "workout_type", "duration_minutes", "intensity"],
@@ -480,7 +480,7 @@ async def list_tools() -> list[Tool]:
                 "type": "object",
                 "properties": {
                     "user_email": {"type": "string"},
-                    "days": {"type": "integer", "default": 30},
+                    "days": {"type": "number", "default": 30},
                 },
                 "required": ["user_email"],
             },
@@ -635,6 +635,28 @@ async def _dispatch(name: str, args: dict, conn: asyncpg.Connection) -> Any:
     raise ValueError(f"Unknown tool: {name}")
 
 
+# ---- Type coercion helpers (MCP clients often send numbers as strings) ----
+
+def _i(val, default=None) -> Optional[int]:
+    """I safely cast any value to int."""
+    if val is None:
+        return default
+    try:
+        return int(float(val))
+    except (TypeError, ValueError):
+        return default
+
+
+def _f(val, default=None) -> Optional[float]:
+    """I safely cast any value to float."""
+    if val is None:
+        return default
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return default
+
+
 # ---- Tool implementations ----
 
 async def _get_profile(conn: asyncpg.Connection, user_id: int) -> dict:
@@ -734,7 +756,7 @@ async def _add_schedule_event(conn: asyncpg.Connection, user_id: int, args: dict
         args["title"],
         args.get("description"),
         args["event_type"],
-        args.get("day_of_week"),
+        _i(args.get("day_of_week")),
         args["start_time"],
         args["end_time"],
         args.get("location"),
@@ -746,7 +768,7 @@ async def _add_schedule_event(conn: asyncpg.Connection, user_id: int, args: dict
 
 
 async def _update_schedule_event(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
-    event_id = args["event_id"]
+    event_id = _i(args["event_id"])
 
     # I verify ownership first
     exists = await conn.fetchval(
@@ -811,7 +833,7 @@ async def _update_schedule_event(conn: asyncpg.Connection, user_id: int, args: d
 
 
 async def _delete_schedule_event(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
-    event_id = args["event_id"]
+    event_id = _i(args["event_id"])
     result = await conn.execute(
         "UPDATE schedule_events SET is_active = false, updated_at = now() WHERE id = $1 AND user_id = $2",
         event_id, user_id,
@@ -875,13 +897,13 @@ async def _add_meal_template(conn: asyncpg.Connection, user_id: int, args: dict)
         args.get("fiber_g"),
         json.dumps(args["ingredients"]),
         args.get("prep_instructions"),
-        args.get("prep_time_minutes"),
+        _i(args.get("prep_time_minutes")),
     )
     return {"status": "created", "template": _serialize(row)}
 
 
 async def _update_meal_template(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
-    template_id = args["template_id"]
+    template_id = _i(args["template_id"])
     exists = await conn.fetchval(
         "SELECT id FROM meal_templates WHERE id = $1 AND user_id = $2",
         template_id, user_id,
@@ -935,7 +957,7 @@ async def _log_meal(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
         args["protein_g"],
         args.get("carbs_g"),
         args.get("fat_g"),
-        args.get("template_id"),
+        _i(args.get("template_id")),
         json.dumps(args.get("custom_ingredients")) if args.get("custom_ingredients") else None,
         args.get("notes"),
     )
@@ -1028,19 +1050,19 @@ async def _log_workout(conn: asyncpg.Connection, user_id: int, args: dict) -> di
         user_id,
         log_date,
         args["workout_type"].lower(),
-        args["duration_minutes"],
+        _i(args["duration_minutes"]),
         args["intensity"],
         args.get("description"),
         json.dumps(details) if details else json.dumps({}),
-        args.get("calories_burned_est"),
-        args.get("energy_level"),
+        _i(args.get("calories_burned_est")),
+        _i(args.get("energy_level")),
     )
     return {"status": "logged", "workout": _serialize(row)}
 
 
 async def _get_workouts(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
     from datetime import timedelta
-    days = args.get("days", 30)
+    days = _i(args.get("days", 30))
     start = date_cls.today() - timedelta(days=days)
     rows = await conn.fetch(
         """
@@ -1202,7 +1224,7 @@ async def _add_inventory_item(conn: asyncpg.Connection, user_id: int, args: dict
 
 
 async def _update_inventory_item(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
-    item_id = args["item_id"]
+    item_id = _i(args["item_id"])
     exists = await conn.fetchval(
         "SELECT id FROM inventory_items WHERE id = $1 AND user_id = $2",
         item_id, user_id,
@@ -1234,10 +1256,10 @@ async def _update_inventory_item(conn: asyncpg.Connection, user_id: int, args: d
 async def _delete_inventory_item(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
     result = await conn.execute(
         "DELETE FROM inventory_items WHERE id = $1 AND user_id = $2",
-        args["item_id"], user_id,
+        _i(args["item_id"]), user_id,
     )
     if result == "DELETE 0":
-        raise ValueError(f"Inventory item {args['item_id']} not found for this user.")
+        raise ValueError(f"Inventory item {_i(args['item_id'])} not found for this user.")
     return {"status": "deleted", "item_id": args["item_id"]}
 
 
