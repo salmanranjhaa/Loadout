@@ -33,14 +33,14 @@ Example features:
 │  ┌─────────────────────────┐                                         │
 │  │  Caddy (Reverse Proxy)  │                                         │
 │  │  :443 / HTTPS           │                                         │
-│  └────────────┬────────────┘                                         │
-│               │                                                      │
-│  ┌────────────▼────────────┐        ┌──────────────────────────┐     │
-│  │  FastAPI Backend        │───────▶│ Vertex AI (Gemini Flash) │     │
-│  │  :8000                  │        └──────────────────────────┘     │
-│  └──────┬────────────┬─────┘                                         │
-│         │            │                                               │
-│  ┌──────▼─────┐ ┌────▼───────┐      ┌──────────────────────────┐     │
+│  └──────┬─────────────┬────┘                                         │
+│         │             │                                              │
+│  ┌──────▼─────┐ ┌─────▼───────┐     ┌──────────────────────────┐     │
+│  │ FastAPI    │ │ MCP Server  │────▶│ Vertex AI (Gemini Flash) │     │
+│  │ :8000      │ │ :8003       │     └──────────────────────────┘     │
+│  └──────┬─────┘ └─────┬───────┘                                      │
+│         │             │                                              │
+│  ┌──────▼─────┐ ┌─────▼──────┐      ┌──────────────────────────┐     │
 │  │ PostgreSQL │ │  MongoDB   │      │ Client App (Capacitor)   │     │
 │  │ (State)    │ │ (Messages) │      │ Android / iOS / Web      │     │
 │  └────────────┘ └────────────┘      └──────────────────────────┘     │
@@ -53,6 +53,7 @@ Example features:
 
 - **Automated Scheduling** — View and control calendar events with infinite scrolling.
 - **AI Nutrition Parsing** — Zero-friction macro logging via natural language processing.
+- **MCP Integration** — Exposes database context and semantic functionality via the Model Context Protocol (MCP) for autonomous agent chaining.
 - **Cross-Platform Native Wrapper** — Deploys as a web app or as a bundled native Android/iOS app.
 - **Role-Based Auth** — Custom JWT session management paired with native Google OAuth pipelines.
 
@@ -66,6 +67,7 @@ Example features:
 | AI | Google Vertex AI (`gemini-1.5-flash` / `gemini-2.0-flash`) |
 | Structured DB | PostgreSQL (Async SQLAlchemy) |
 | Document DB | MongoDB (Motor) |
+| Context Protocol | Anthropic Model Context Protocol (MCP) Server |
 | Frontend | React 18, Vite, TailwindCSS |
 | Native Wrapper | Ionic Capacitor |
 | Containerization | Docker Compose, Caddy Server |
@@ -88,6 +90,10 @@ loadout/
 │   ├── android/                  # Capacitor native Android bundle
 │   ├── capacitor.config.json     # Interop config
 │   ├── package.json
+│   └── Dockerfile
+├── mcp/
+│   ├── server.py                 # Standalone MCP protocol server
+│   ├── requirements.txt
 │   └── Dockerfile
 ├── infra/
 │   ├── docker-compose.prod.yml   # Production compose
