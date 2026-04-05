@@ -4,6 +4,14 @@ loadedout.online {
         reverse_proxy backend:8000
     }
 
+    # Proxy MCP server, stripping the /mcp prefix before forwarding
+    handle_path /mcp/* {
+        reverse_proxy mcp:8003 {
+            # I disable response buffering so SSE events stream through immediately
+            flush_interval -1
+        }
+    }
+
     # Serve the React SPA (fallback)
     handle {
         root * /usr/share/caddy
