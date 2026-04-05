@@ -1,4 +1,4 @@
-# Loadout (LifePlan)
+# Loadout
 
 Loadout is a comprehensive, AI-driven personal routine, fitness, and nutrition assistant. It allows users to orchestrate their weekly schedule, automatically track meals and macronutrients via AI estimation, analyze workouts, and maintain personal budgets.
 
