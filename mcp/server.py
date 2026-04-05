@@ -1,0 +1,843 @@
+"""
+Loadout MCP Server
+
+I expose tools so Claude Cowork (or any MCP client) can read and write
+directly into the Loadout PostgreSQL database on behalf of a user.
+
+Connect via SSE at: http://<VM_IP>:8003/sse
+"""
+
+import asyncio
+import json
+import os
+from datetime import date as date_cls, datetime
+from typing import Any, Optional
+
+import asyncpg
+from mcp.server import Server
+from mcp.server.sse import SseServerTransport
+from mcp.types import TextContent, Tool
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import Response
+from starlette.routing import Mount, Route
+import uvicorn
+
+# I read credentials from environment, falling back to defaults for local dev
+DATABASE_URL = os.environ.get(
+    "MCP_DATABASE_URL",
+    "postgresql://lifeplan_user:changeme@db:5432/lifeplan_db",
+)
+
+# I keep a module-level connection pool so all tool calls share it
+_pool: Optional[asyncpg.Pool] = None
+
+
+async def get_pool() -> asyncpg.Pool:
+    global _pool
+    if _pool is None:
+        _pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
+    return _pool
+
+
+async def resolve_user_id(conn: asyncpg.Connection, email: str) -> int:
+    """I look up the user id by email, raising a clear error if not found."""
+    row = await conn.fetchrow(
+        "SELECT id FROM users WHERE email = $1 AND is_active = true", email
+    )
+    if not row:
+        raise ValueError(f"No active user found with email: {email}")
+    return row["id"]
+
+
+def _serialize(val: Any) -> Any:
+    """I recursively convert asyncpg Record objects and dates to plain dicts/strings."""
+    if isinstance(val, asyncpg.Record):
+        return {k: _serialize(v) for k, v in dict(val).items()}
+    if isinstance(val, list):
+        return [_serialize(v) for v in val]
+    if isinstance(val, (date_cls, datetime)):
+        return val.isoformat()
+    return val
+
+
+server = Server("loadout")
+
+
+# ---- Tool definitions ----
+
+@server.list_tools()
+async def list_tools() -> list[Tool]:
+    return [
+        Tool(
+            name="get_profile",
+            description=(
+                "Get a Loadout user's profile: physical stats, macro targets, "
+                "supplements, dietary preferences, and routine preferences."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string", "description": "The user's email address"},
+                },
+                "required": ["user_email"],
+            },
+        ),
+        Tool(
+            name="update_profile",
+            description=(
+                "Update any combination of profile fields for a Loadout user: "
+                "weight, height, age, gender, macro targets, dietary preferences, "
+                "supplements, routine preferences."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "current_weight_kg": {"type": "number"},
+                    "target_weight_kg": {"type": "number"},
+                    "height_cm": {"type": "number"},
+                    "age": {"type": "integer"},
+                    "gender": {"type": "string"},
+                    "daily_calorie_target": {"type": "integer"},
+                    "daily_protein_target": {"type": "integer"},
+                    "daily_carb_target": {"type": "integer"},
+                    "daily_fat_target": {"type": "integer"},
+                    "dietary_preferences": {
+                        "type": "object",
+                        "description": (
+                            "JSON with keys: dietary_pattern, allergies (list), "
+                            "disliked_foods (list), preferred_foods (list), notes"
+                        ),
+                    },
+                    "supplements": {
+                        "type": "object",
+                        "description": (
+                            "JSON with keys: morning (list), pre_workout (list), "
+                            "post_workout (list), before_bed (list)"
+                        ),
+                    },
+                    "routine_preferences": {
+                        "type": "object",
+                        "description": (
+                            "JSON with keys: wake_up_weekday, wake_up_weekend, bedtime, notes"
+                        ),
+                    },
+                },
+                "required": ["user_email"],
+            },
+        ),
+        Tool(
+            name="get_schedule",
+            description=(
+                "Get schedule events for a user. "
+                "Optionally filter by day_of_week (0=Monday, 6=Sunday) "
+                "or by a specific date string (YYYY-MM-DD). "
+                "Returns all active events sorted by day and start time."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "day_of_week": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 6,
+                        "description": "0=Monday, 6=Sunday",
+                    },
+                    "target_date": {
+                        "type": "string",
+                        "description": "YYYY-MM-DD, returns events for that weekday",
+                    },
+                },
+                "required": ["user_email"],
+            },
+        ),
+        Tool(
+            name="add_schedule_event",
+            description=(
+                "Add a new recurring or one-off schedule event. "
+                "event_type must be one of: routine, meal, exercise, focus, class, social, work. "
+                "recurrence: weekly (default), biweekly, or once. "
+                "For one-off events set recurrence=once and provide specific_date (YYYY-MM-DD)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "title": {"type": "string"},
+                    "event_type": {
+                        "type": "string",
+                        "enum": ["routine", "meal", "exercise", "focus", "class", "social", "work"],
+                    },
+                    "day_of_week": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 6,
+                        "description": "0=Monday, required for weekly/biweekly events",
+                    },
+                    "start_time": {"type": "string", "description": "HH:MM format"},
+                    "end_time": {"type": "string", "description": "HH:MM format"},
+                    "description": {"type": "string"},
+                    "location": {"type": "string"},
+                    "recurrence": {
+                        "type": "string",
+                        "enum": ["weekly", "biweekly", "once"],
+                        "default": "weekly",
+                    },
+                    "specific_date": {
+                        "type": "string",
+                        "description": "YYYY-MM-DD, required when recurrence=once",
+                    },
+                    "event_data": {
+                        "type": "object",
+                        "description": "Extra metadata (meal details, exercise type, etc.)",
+                    },
+                },
+                "required": ["user_email", "title", "event_type", "start_time", "end_time"],
+            },
+        ),
+        Tool(
+            name="update_schedule_event",
+            description="Update fields of an existing schedule event by its ID.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "event_id": {"type": "integer"},
+                    "title": {"type": "string"},
+                    "start_time": {"type": "string", "description": "HH:MM"},
+                    "end_time": {"type": "string", "description": "HH:MM"},
+                    "day_of_week": {"type": "integer", "minimum": 0, "maximum": 6},
+                    "description": {"type": "string"},
+                    "location": {"type": "string"},
+                    "event_data": {"type": "object"},
+                    "is_active": {"type": "boolean"},
+                    "reason": {
+                        "type": "string",
+                        "description": "Why the event is being changed (logged for AI pattern learning)",
+                    },
+                },
+                "required": ["user_email", "event_id"],
+            },
+        ),
+        Tool(
+            name="delete_schedule_event",
+            description="Soft-delete (deactivate) a schedule event by its ID.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "event_id": {"type": "integer"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["user_email", "event_id"],
+            },
+        ),
+        Tool(
+            name="get_meal_templates",
+            description=(
+                "List saved meal templates for a user. "
+                "Optionally filter by meal_type: breakfast, lunch, dinner, or snack."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "meal_type": {
+                        "type": "string",
+                        "enum": ["breakfast", "lunch", "dinner", "snack"],
+                    },
+                },
+                "required": ["user_email"],
+            },
+        ),
+        Tool(
+            name="add_meal_template",
+            description=(
+                "Add a new meal template with full nutritional breakdown and ingredients. "
+                "ingredients is a list of objects with keys: name, amount_g, calories, protein."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "name": {"type": "string"},
+                    "meal_type": {
+                        "type": "string",
+                        "enum": ["breakfast", "lunch", "dinner", "snack"],
+                    },
+                    "calories": {"type": "number"},
+                    "protein_g": {"type": "number"},
+                    "carbs_g": {"type": "number"},
+                    "fat_g": {"type": "number"},
+                    "fiber_g": {"type": "number"},
+                    "ingredients": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": (
+                            "List of ingredient objects, e.g. "
+                            '[{"name": "chicken breast", "amount_g": 150, "calories": 165, "protein": 31}]'
+                        ),
+                    },
+                    "prep_instructions": {"type": "string"},
+                    "prep_time_minutes": {"type": "integer"},
+                },
+                "required": ["user_email", "name", "meal_type", "calories", "protein_g", "ingredients"],
+            },
+        ),
+        Tool(
+            name="update_meal_template",
+            description="Update fields of an existing meal template by its ID.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "template_id": {"type": "integer"},
+                    "name": {"type": "string"},
+                    "calories": {"type": "number"},
+                    "protein_g": {"type": "number"},
+                    "carbs_g": {"type": "number"},
+                    "fat_g": {"type": "number"},
+                    "fiber_g": {"type": "number"},
+                    "ingredients": {"type": "array", "items": {"type": "object"}},
+                    "prep_instructions": {"type": "string"},
+                    "prep_time_minutes": {"type": "integer"},
+                    "is_active": {"type": "boolean"},
+                },
+                "required": ["user_email", "template_id"],
+            },
+        ),
+        Tool(
+            name="log_meal",
+            description=(
+                "Log an actual meal eaten by the user on a given date (defaults to today). "
+                "Optionally reference a template_id if the meal is based on a saved template."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "meal_type": {
+                        "type": "string",
+                        "enum": ["breakfast", "lunch", "dinner", "snack"],
+                    },
+                    "name": {"type": "string"},
+                    "calories": {"type": "number"},
+                    "protein_g": {"type": "number"},
+                    "carbs_g": {"type": "number"},
+                    "fat_g": {"type": "number"},
+                    "date": {
+                        "type": "string",
+                        "description": "YYYY-MM-DD, defaults to today if omitted",
+                    },
+                    "notes": {"type": "string"},
+                    "template_id": {"type": "integer"},
+                    "custom_ingredients": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                    },
+                },
+                "required": ["user_email", "meal_type", "name", "calories", "protein_g"],
+            },
+        ),
+        Tool(
+            name="get_meal_log",
+            description="Get all meal log entries for a given date (defaults to today).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "date": {
+                        "type": "string",
+                        "description": "YYYY-MM-DD, defaults to today",
+                    },
+                },
+                "required": ["user_email"],
+            },
+        ),
+        Tool(
+            name="get_macro_summary",
+            description=(
+                "Get a macro summary for a given date: total calories, protein, carbs, and fat "
+                "consumed vs the user's daily targets. Defaults to today."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "date": {
+                        "type": "string",
+                        "description": "YYYY-MM-DD, defaults to today",
+                    },
+                },
+                "required": ["user_email"],
+            },
+        ),
+    ]
+
+
+# ---- Tool handlers ----
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        try:
+            result = await _dispatch(name, arguments, conn)
+            return [TextContent(type="text", text=json.dumps(result, default=str, indent=2))]
+        except ValueError as e:
+            return [TextContent(type="text", text=f"Error: {e}")]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Unexpected error: {e}")]
+
+
+async def _dispatch(name: str, args: dict, conn: asyncpg.Connection) -> Any:
+    email = args["user_email"]
+    user_id = await resolve_user_id(conn, email)
+
+    if name == "get_profile":
+        return await _get_profile(conn, user_id)
+
+    if name == "update_profile":
+        return await _update_profile(conn, user_id, args)
+
+    if name == "get_schedule":
+        return await _get_schedule(conn, user_id, args)
+
+    if name == "add_schedule_event":
+        return await _add_schedule_event(conn, user_id, args)
+
+    if name == "update_schedule_event":
+        return await _update_schedule_event(conn, user_id, args)
+
+    if name == "delete_schedule_event":
+        return await _delete_schedule_event(conn, user_id, args)
+
+    if name == "get_meal_templates":
+        return await _get_meal_templates(conn, user_id, args)
+
+    if name == "add_meal_template":
+        return await _add_meal_template(conn, user_id, args)
+
+    if name == "update_meal_template":
+        return await _update_meal_template(conn, user_id, args)
+
+    if name == "log_meal":
+        return await _log_meal(conn, user_id, args)
+
+    if name == "get_meal_log":
+        return await _get_meal_log(conn, user_id, args)
+
+    if name == "get_macro_summary":
+        return await _get_macro_summary(conn, user_id, args)
+
+    raise ValueError(f"Unknown tool: {name}")
+
+
+# ---- Tool implementations ----
+
+async def _get_profile(conn: asyncpg.Connection, user_id: int) -> dict:
+    row = await conn.fetchrow(
+        """
+        SELECT username, email, current_weight_kg, target_weight_kg, height_cm,
+               age, gender, daily_calorie_target, daily_protein_target,
+               daily_carb_target, daily_fat_target, preferred_currency,
+               dietary_preferences, supplements, routine_preferences,
+               grocery_stores, created_at
+        FROM users WHERE id = $1
+        """,
+        user_id,
+    )
+    return _serialize(row)
+
+
+async def _update_profile(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    # I build the SET clause dynamically from whichever fields were provided
+    simple_fields = [
+        "current_weight_kg", "target_weight_kg", "height_cm", "age", "gender",
+        "daily_calorie_target", "daily_protein_target", "daily_carb_target",
+        "daily_fat_target",
+    ]
+    json_fields = ["dietary_preferences", "supplements", "routine_preferences"]
+
+    updates = []
+    values = []
+    idx = 1
+
+    for field in simple_fields:
+        if field in args and args[field] is not None:
+            updates.append(f"{field} = ${idx}")
+            values.append(args[field])
+            idx += 1
+
+    for field in json_fields:
+        if field in args and args[field] is not None:
+            updates.append(f"{field} = ${idx}::jsonb")
+            values.append(json.dumps(args[field]))
+            idx += 1
+
+    if not updates:
+        return {"status": "no_changes", "message": "No updatable fields provided."}
+
+    updates.append(f"updated_at = now()")
+    values.append(user_id)
+
+    await conn.execute(
+        f"UPDATE users SET {', '.join(updates)} WHERE id = ${idx}",
+        *values,
+    )
+    return {"status": "updated", "fields": [u.split(" =")[0] for u in updates[:-1]]}
+
+
+async def _get_schedule(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    day = args.get("day_of_week")
+    target_date_str = args.get("target_date")
+
+    base = """
+        SELECT id, title, description, event_type, day_of_week, start_time, end_time,
+               location, recurrence, specific_date, event_data, is_user_modified
+        FROM schedule_events
+        WHERE user_id = $1 AND is_active = true
+    """
+    params: list[Any] = [user_id]
+
+    if day is not None:
+        base += f" AND day_of_week = ${len(params) + 1}"
+        params.append(day)
+    elif target_date_str:
+        parsed = date_cls.fromisoformat(target_date_str)
+        weekday = parsed.weekday()
+        base += f" AND (day_of_week = ${len(params) + 1} OR date(specific_date) = ${len(params) + 2})"
+        params.extend([weekday, parsed])
+
+    base += " ORDER BY day_of_week NULLS LAST, start_time"
+    rows = await conn.fetch(base, *params)
+    return {"events": [_serialize(r) for r in rows], "count": len(rows)}
+
+
+async def _add_schedule_event(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    specific_date = None
+    if args.get("specific_date"):
+        specific_date = date_cls.fromisoformat(args["specific_date"])
+
+    row = await conn.fetchrow(
+        """
+        INSERT INTO schedule_events
+            (user_id, title, description, event_type, day_of_week, start_time, end_time,
+             location, recurrence, specific_date, event_data, is_active)
+        VALUES
+            ($1, $2, $3, $4, $5, $6::time, $7::time, $8, $9, $10, $11::jsonb, true)
+        RETURNING id, title, event_type, day_of_week, start_time, end_time
+        """,
+        user_id,
+        args["title"],
+        args.get("description"),
+        args["event_type"],
+        args.get("day_of_week"),
+        args["start_time"],
+        args["end_time"],
+        args.get("location"),
+        args.get("recurrence", "weekly"),
+        specific_date,
+        json.dumps(args.get("event_data", {})),
+    )
+    return {"status": "created", "event": _serialize(row)}
+
+
+async def _update_schedule_event(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    event_id = args["event_id"]
+
+    # I verify ownership first
+    exists = await conn.fetchval(
+        "SELECT id FROM schedule_events WHERE id = $1 AND user_id = $2 AND is_active = true",
+        event_id, user_id,
+    )
+    if not exists:
+        raise ValueError(f"Event {event_id} not found or does not belong to this user.")
+
+    field_map = {
+        "title": ("title", "text"),
+        "description": ("description", "text"),
+        "location": ("location", "text"),
+        "day_of_week": ("day_of_week", "int"),
+        "is_active": ("is_active", "bool"),
+    }
+    time_fields = {"start_time", "end_time"}
+    json_fields = {"event_data"}
+
+    updates = []
+    values = []
+    idx = 1
+
+    for arg_key, (col, _) in field_map.items():
+        if arg_key in args and args[arg_key] is not None:
+            updates.append(f"{col} = ${idx}")
+            values.append(args[arg_key])
+            idx += 1
+
+    for tf in time_fields:
+        if tf in args and args[tf]:
+            updates.append(f"{tf} = ${idx}::time")
+            values.append(args[tf])
+            idx += 1
+
+    for jf in json_fields:
+        if jf in args and args[jf] is not None:
+            updates.append(f"{jf} = ${idx}::jsonb")
+            values.append(json.dumps(args[jf]))
+            idx += 1
+
+    if updates:
+        updates.append("is_user_modified = true")
+        updates.append("updated_at = now()")
+        values.append(event_id)
+        await conn.execute(
+            f"UPDATE schedule_events SET {', '.join(updates)} WHERE id = ${idx}",
+            *values,
+        )
+
+    # I log the modification so the RAG system can learn from it
+    if args.get("reason") or updates:
+        await conn.execute(
+            """
+            INSERT INTO schedule_modifications (user_id, event_id, modification_type, reason)
+            VALUES ($1, $2, 'update', $3)
+            """,
+            user_id, event_id, args.get("reason"),
+        )
+
+    return {"status": "updated", "event_id": event_id}
+
+
+async def _delete_schedule_event(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    event_id = args["event_id"]
+    result = await conn.execute(
+        "UPDATE schedule_events SET is_active = false, updated_at = now() WHERE id = $1 AND user_id = $2",
+        event_id, user_id,
+    )
+    if result == "UPDATE 0":
+        raise ValueError(f"Event {event_id} not found or does not belong to this user.")
+
+    await conn.execute(
+        """
+        INSERT INTO schedule_modifications (user_id, event_id, modification_type, reason)
+        VALUES ($1, $2, 'skip', $3)
+        """,
+        user_id, event_id, args.get("reason"),
+    )
+    return {"status": "deleted", "event_id": event_id}
+
+
+async def _get_meal_templates(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    meal_type = args.get("meal_type")
+    if meal_type:
+        rows = await conn.fetch(
+            """
+            SELECT id, name, meal_type, calories, protein_g, carbs_g, fat_g, fiber_g,
+                   ingredients, prep_instructions, prep_time_minutes, source
+            FROM meal_templates
+            WHERE user_id = $1 AND is_active = true AND meal_type = $2
+            ORDER BY name
+            """,
+            user_id, meal_type,
+        )
+    else:
+        rows = await conn.fetch(
+            """
+            SELECT id, name, meal_type, calories, protein_g, carbs_g, fat_g, fiber_g,
+                   ingredients, prep_instructions, prep_time_minutes, source
+            FROM meal_templates
+            WHERE user_id = $1 AND is_active = true
+            ORDER BY meal_type, name
+            """,
+            user_id,
+        )
+    return {"templates": [_serialize(r) for r in rows], "count": len(rows)}
+
+
+async def _add_meal_template(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    row = await conn.fetchrow(
+        """
+        INSERT INTO meal_templates
+            (user_id, name, meal_type, calories, protein_g, carbs_g, fat_g, fiber_g,
+             ingredients, prep_instructions, prep_time_minutes, source, is_active)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, 'user', true)
+        RETURNING id, name, meal_type, calories, protein_g
+        """,
+        user_id,
+        args["name"],
+        args["meal_type"],
+        args["calories"],
+        args["protein_g"],
+        args.get("carbs_g"),
+        args.get("fat_g"),
+        args.get("fiber_g"),
+        json.dumps(args["ingredients"]),
+        args.get("prep_instructions"),
+        args.get("prep_time_minutes"),
+    )
+    return {"status": "created", "template": _serialize(row)}
+
+
+async def _update_meal_template(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    template_id = args["template_id"]
+    exists = await conn.fetchval(
+        "SELECT id FROM meal_templates WHERE id = $1 AND user_id = $2",
+        template_id, user_id,
+    )
+    if not exists:
+        raise ValueError(f"Template {template_id} not found or does not belong to this user.")
+
+    simple_cols = ["name", "calories", "protein_g", "carbs_g", "fat_g", "fiber_g",
+                   "prep_instructions", "prep_time_minutes", "is_active"]
+    updates = []
+    values = []
+    idx = 1
+
+    for col in simple_cols:
+        if col in args and args[col] is not None:
+            updates.append(f"{col} = ${idx}")
+            values.append(args[col])
+            idx += 1
+
+    if "ingredients" in args and args["ingredients"] is not None:
+        updates.append(f"ingredients = ${idx}::jsonb")
+        values.append(json.dumps(args["ingredients"]))
+        idx += 1
+
+    if not updates:
+        return {"status": "no_changes"}
+
+    values.append(template_id)
+    await conn.execute(
+        f"UPDATE meal_templates SET {', '.join(updates)} WHERE id = ${idx}",
+        *values,
+    )
+    return {"status": "updated", "template_id": template_id}
+
+
+async def _log_meal(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    log_date = date_cls.fromisoformat(args["date"]) if args.get("date") else date_cls.today()
+    row = await conn.fetchrow(
+        """
+        INSERT INTO meal_logs
+            (user_id, date, meal_type, name, calories, protein_g, carbs_g, fat_g,
+             template_id, custom_ingredients, notes)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11)
+        RETURNING id, name, meal_type, calories, protein_g, date
+        """,
+        user_id,
+        log_date,
+        args["meal_type"],
+        args["name"],
+        args["calories"],
+        args["protein_g"],
+        args.get("carbs_g"),
+        args.get("fat_g"),
+        args.get("template_id"),
+        json.dumps(args.get("custom_ingredients")) if args.get("custom_ingredients") else None,
+        args.get("notes"),
+    )
+    return {"status": "logged", "entry": _serialize(row)}
+
+
+async def _get_meal_log(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    log_date = date_cls.fromisoformat(args["date"]) if args.get("date") else date_cls.today()
+    rows = await conn.fetch(
+        """
+        SELECT id, meal_type, name, calories, protein_g, carbs_g, fat_g, notes, created_at
+        FROM meal_logs
+        WHERE user_id = $1 AND date = $2
+        ORDER BY created_at
+        """,
+        user_id, log_date,
+    )
+    return {"date": str(log_date), "entries": [_serialize(r) for r in rows], "count": len(rows)}
+
+
+async def _get_macro_summary(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    log_date = date_cls.fromisoformat(args["date"]) if args.get("date") else date_cls.today()
+
+    totals = await conn.fetchrow(
+        """
+        SELECT
+            COALESCE(SUM(calories), 0)   AS total_calories,
+            COALESCE(SUM(protein_g), 0)  AS total_protein,
+            COALESCE(SUM(carbs_g), 0)    AS total_carbs,
+            COALESCE(SUM(fat_g), 0)      AS total_fat
+        FROM meal_logs
+        WHERE user_id = $1 AND date = $2
+        """,
+        user_id, log_date,
+    )
+    targets = await conn.fetchrow(
+        """
+        SELECT daily_calorie_target, daily_protein_target,
+               daily_carb_target, daily_fat_target
+        FROM users WHERE id = $1
+        """,
+        user_id,
+    )
+
+    def _remaining(consumed: float, target: Optional[int]) -> Optional[float]:
+        return round(target - consumed, 1) if target else None
+
+    cal = float(totals["total_calories"])
+    prot = float(totals["total_protein"])
+    carbs = float(totals["total_carbs"])
+    fat = float(totals["total_fat"])
+
+    return {
+        "date": str(log_date),
+        "consumed": {
+            "calories": round(cal, 1),
+            "protein_g": round(prot, 1),
+            "carbs_g": round(carbs, 1),
+            "fat_g": round(fat, 1),
+        },
+        "targets": {
+            "calories": targets["daily_calorie_target"],
+            "protein_g": targets["daily_protein_target"],
+            "carbs_g": targets["daily_carb_target"],
+            "fat_g": targets["daily_fat_target"],
+        },
+        "remaining": {
+            "calories": _remaining(cal, targets["daily_calorie_target"]),
+            "protein_g": _remaining(prot, targets["daily_protein_target"]),
+            "carbs_g": _remaining(carbs, targets["daily_carb_target"]),
+            "fat_g": _remaining(fat, targets["daily_fat_target"]),
+        },
+    }
+
+
+# ---- Starlette ASGI app with SSE transport ----
+
+def build_app() -> Starlette:
+    sse = SseServerTransport("/messages/")
+
+    async def handle_sse(request: Request) -> Response:
+        async with sse.connect_sse(
+            request.scope, request.receive, request._send
+        ) as streams:
+            await server.run(
+                streams[0], streams[1], server.create_initialization_options()
+            )
+        return Response()
+
+    async def handle_messages(request: Request) -> Response:
+        await sse.handle_post_message(request.scope, request.receive, request._send)
+        return Response()
+
+    return Starlette(
+        routes=[
+            Route("/sse", endpoint=handle_sse),
+            Mount("/messages/", app=sse.handle_post_message),
+        ]
+    )
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("MCP_PORT", "8003"))
+    app = build_app()
+    uvicorn.run(app, host="0.0.0.0", port=port)

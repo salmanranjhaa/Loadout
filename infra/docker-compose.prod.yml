@@ -71,6 +71,22 @@ services:
       mongo:
         condition: service_healthy
 
+  mcp:
+    build:
+      context: ../mcp
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      MCP_DATABASE_URL: "postgresql://lifeplan_user:${POSTGRES_PASSWORD}@db:5432/lifeplan_db"
+      MCP_PORT: "8003"
+    ports:
+      - "8003:8003"
+    networks:
+      - lifeplan-net
+    depends_on:
+      db:
+        condition: service_healthy
+
   frontend:
     build:
       context: ..
