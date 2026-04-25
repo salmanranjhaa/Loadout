@@ -9,7 +9,7 @@ const STORAGE_KEY = "lifeplan_chat_v1";
 function makeInitialMessage(name = "there") {
   return {
     role: "assistant",
-    content: `Hey ${name}! I'm your nutrition and routine assistant, powered by Vertex AI.\n\nI know your meal plan, macro targets, training schedule, and food preferences. Ask me anything about meals, swaps, grocery lists, or routine adjustments.\n\nWhen you find a meal you like, just say **"save this"** and I'll add it to your meals library. For workouts, just ask and say **"save it"** to add to your templates.`,
+    content: `Hey ${name}! How can I help you today?`,
   };
 }
 
@@ -485,7 +485,6 @@ export default function ChatPage() {
       {/* Header */}
       <PageHeader
         title="AI Assistant"
-        subtitle="Gemini 2.5 + RAG"
         trailing={
           <div style={{ display:"flex", gap:6 }}>
             <button onClick={openHistory} style={{ display:"flex", alignItems:"center", gap:5, padding:"5px 10px", background:T.elevated, border:`1px solid ${T.border}`, borderRadius:8, cursor:"pointer", color:T.textMuted, fontSize:11, fontFamily:"inherit" }}>
@@ -497,6 +496,14 @@ export default function ChatPage() {
           </div>
         }
       />
+
+      {/* Save hint banner */}
+      <div style={{ margin:"0 16px 8px", padding:"8px 12px", background:`${T.violet}18`, border:`1px solid ${T.violet}33`, borderRadius:10, display:"flex", alignItems:"center", gap:8, flexShrink:0 }}>
+        <Icon name="sparkle" size={13} color={T.violet} />
+        <span style={{ fontSize:11, color:T.textMuted, lineHeight:1.4, flex:1 }}>
+          Say <b style={{ color:T.violet }}>"save this"</b> after a meal suggestion, or <b style={{ color:T.violet }}>"save it"</b> for a workout to add to your library.
+        </span>
+      </div>
 
       {/* Quick prompts */}
       <div style={{ display:"flex", gap:8, overflowX:"auto", padding:"0 20px 10px", scrollbarWidth:"none", flexShrink:0 }}>

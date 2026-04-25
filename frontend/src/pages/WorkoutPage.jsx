@@ -404,6 +404,7 @@ export default function WorkoutPage({ profile, onProfile }) {
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [selectedLog, setSelectedLog] = useState(null);
   const [liveSession, setLiveSession] = useState(false);
+  const [liveTemplate, setLiveTemplate] = useState(null);
   const [showBrowser, setShowBrowser] = useState(false);
   const [showAILogger, setShowAILogger] = useState(false);
   const [showCreateTemplate, setShowCreateTemplate] = useState(false);
@@ -488,13 +489,21 @@ export default function WorkoutPage({ profile, onProfile }) {
       {showCreateTemplate && <CreateTemplateSheet onClose={()=>setShowCreateTemplate(false)} onRefresh={refresh} />}
 
       {selectedTemplate && (
-        <TemplateDetailPage template={selectedTemplate} onBack={()=>setSelectedTemplate(null)} onStart={()=>{ setSelectedTemplate(null); setLiveSession(true); }} />
+        <TemplateDetailPage
+          template={selectedTemplate}
+          onBack={() => setSelectedTemplate(null)}
+          onStart={() => { setLiveTemplate(selectedTemplate); setSelectedTemplate(null); setLiveSession(true); }}
+        />
       )}
       {selectedLog && (
-        <WorkoutLogPage workout={selectedLog} onBack={()=>setSelectedLog(null)} mode="history" />
+        <WorkoutLogPage workout={selectedLog} onBack={() => { setSelectedLog(null); refresh(); }} mode="history" />
       )}
       {liveSession && (
-        <WorkoutLogPage onBack={()=>setLiveSession(false)} mode="live" />
+        <WorkoutLogPage
+          workout={liveTemplate}
+          onBack={() => { setLiveSession(false); setLiveTemplate(null); refresh(); }}
+          mode="live"
+        />
       )}
     </div>
   );

@@ -128,6 +128,7 @@ export const mealsAPI = {
   updateTemplate: (id, data) => request(`/meals/templates/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteTemplate: (id) => request(`/meals/templates/${id}`, { method: "DELETE" }),
   logMeal: (data) => request("/meals/log", { method: "POST", body: JSON.stringify(data) }),
+  updateLog: (id, data) => request(`/meals/log/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteLog: (id) => request(`/meals/log/${id}`, { method: "DELETE" }),
   logManual: (data) => request("/meals/log-manual", { method: "POST", body: JSON.stringify(data) }),
   getToday: () => request("/meals/today"),

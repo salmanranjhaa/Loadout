@@ -147,6 +147,41 @@ async def delete_meal_template(
     return {"deleted": template_id}
 
 
+class MealLogUpdate(BaseModel):
+    name: Optional[str] = None
+    meal_type: Optional[str] = None
+    calories: Optional[float] = None
+    protein_g: Optional[float] = None
+    carbs_g: Optional[float] = None
+    fat_g: Optional[float] = None
+
+
+@router.put("/log/{log_id}")
+async def update_meal_log(
+    log_id: int,
+    body: MealLogUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """I update name and/or macros for an existing meal log entry."""
+    result = await db.execute(
+        select(MealLog).where(MealLog.id == log_id, MealLog.user_id == user["sub"])
+    )
+    log = result.scalar_one_or_none()
+    if not log:
+        raise HTTPException(status_code=404, detail="Meal log not found")
+    fields_set = getattr(body, "model_fields_set", getattr(body, "__fields_set__", set()))
+    if "name" in fields_set and body.name is not None: log.name = body.name
+    if "meal_type" in fields_set and body.meal_type is not None: log.meal_type = body.meal_type
+    if "calories" in fields_set and body.calories is not None: log.calories = body.calories
+    if "protein_g" in fields_set and body.protein_g is not None: log.protein_g = body.protein_g
+    if "carbs_g" in fields_set: log.carbs_g = body.carbs_g
+    if "fat_g" in fields_set: log.fat_g = body.fat_g
+    await db.commit()
+    await db.refresh(log)
+    return _format_log(log)
+
+
 @router.delete("/log/{log_id}")
 async def delete_meal_log(
     log_id: int,

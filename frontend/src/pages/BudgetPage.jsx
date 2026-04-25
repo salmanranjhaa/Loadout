@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { T } from "../design/tokens";
 import { Icon } from "../design/icons";
-import { Card, Fab, PageHeader, PageScroll, SectionHead, EmptyState, LoadingDots } from "../design/components";
+import { Card, PageHeader, PageScroll, SectionHead, EmptyState, LoadingDots } from "../design/components";
 import { budgetAPI } from "../utils/api";
 import CategoryDetailPage from "./details/CategoryDetailPage";
 
-const CATS = [
+const EXPENSE_CATS = [
   { id: "food",      label: "Food",      color: T.amber,   icon: "meal"    },
   { id: "rent",      label: "Rent",      color: T.violet,  icon: "location" },
   { id: "transport", label: "Transport", color: T.teal,    icon: "bike"    },
@@ -14,27 +14,25 @@ const CATS = [
   { id: "other",     label: "Other",     color: "#FC8B5C", icon: "pill"    },
 ];
 
+const INCOME_CATS = [
+  { id: "income",    label: "Income",    color: T.teal,    icon: "trend-up" },
+  { id: "savings",   label: "Savings",   color: "#5C8FFC", icon: "shield"  },
+];
+
+const CATS = [...EXPENSE_CATS, ...INCOME_CATS];
 const CAT_BUDGETS = { food: 400, rent: 1200, transport: 150, fitness: 80, fun: 200, other: 150 };
 
 function getCat(id) { return CATS.find(c => c.id === id) || CATS[5]; }
 
 const MOCK_SUMMARY = {
-  income: 3200,
-  expenses: 2180,
-  net: 1020,
-  by_category: { food: 340, rent: 1200, transport: 95, fitness: 60, fun: 120, other: 65 },
-  sparkline: [1100, 980, 1200, 1050, 1180, 1020],
-  week_bars: [42, 85, 65, 120, 95, 180, 110],
-  week_avg: 99.6,
+  income: 0, expenses: 0, net: 0,
+  by_category: {},
+  sparkline: [0, 0, 0, 0, 0, 0],
+  week_bars: [0, 0, 0, 0, 0, 0, 0],
+  week_avg: 0,
 };
 
-const MOCK_ENTRIES = [
-  { id: "e1", date: "2025-04-24", category: "food",      amount: 18.50, description: "Lidl groceries" },
-  { id: "e2", date: "2025-04-24", category: "transport", amount: 4.20,  description: "Bus ticket" },
-  { id: "e3", date: "2025-04-23", category: "fitness",   amount: 12.00, description: "Gym session" },
-  { id: "e4", date: "2025-04-23", category: "food",      amount: 9.80,  description: "Coffee + lunch" },
-  { id: "e5", date: "2025-04-22", category: "fun",       amount: 35.00, description: "Cinema + drinks" },
-];
+const MOCK_ENTRIES = [];
 
 function groupByDate(entries) {
   const groups = {};
@@ -54,7 +52,7 @@ function DonutChart({ data, active, onSelect }) {
   const gap = 0.04;
 
   let offset = -Math.PI / 2;
-  const slices = CATS.map((cat) => {
+  const slices = EXPENSE_CATS.map((cat) => {
     const val = data[cat.id] || 0;
     const pct = val / total;
     const angle = pct * 2 * Math.PI - gap;
@@ -169,99 +167,142 @@ function WeekBarsChart({ bars, avg }) {
   );
 }
 
-function AddExpenseSheet({ onClose, onAdded }) {
+function AddEntrySheet({ onClose, onAdded, type = "expense" }) {
+  const isIncome = type === "income";
+  const cats = isIncome ? INCOME_CATS : EXPENSE_CATS;
   const [amount, setAmount] = useState("");
-  const [cat, setCat] = useState("food");
+  const [cat, setCat] = useState(isIncome ? "income" : "food");
   const [desc, setDesc] = useState("");
+  const [account, setAccount] = useState("");
   const [saving, setSaving] = useState(false);
 
   async function handleSave() {
     if (!amount || parseFloat(amount) <= 0) return;
     setSaving(true);
     try {
-      await budgetAPI.add({ amount: parseFloat(amount), category: cat, description: desc || null });
+      const fullDesc = [desc, account ? `(${account})` : ""].filter(Boolean).join(" ") || null;
+      await budgetAPI.add({ amount: parseFloat(amount), category: cat, description: fullDesc });
       onAdded();
       onClose();
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
     setSaving(false);
   }
+
+  const accentColor = isIncome ? T.teal : T.amber;
 
   return (
     <div style={{ position: "absolute", inset: 0, zIndex: 40, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
       <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)" }} />
-      <div style={{ position: "relative", background: T.surface, borderRadius: "20px 20px 0 0", padding: "20px 20px 36px", border: `1px solid ${T.border}` }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>Add Expense</div>
+      <div style={{ position: "relative", background: T.surface, borderRadius: "20px 20px 0 0", padding: "20px 20px 40px", border: `1px solid ${T.border}` }}>
+        <div style={{ width: 36, height: 4, borderRadius: 9999, background: T.border, margin: "0 auto 16px" }} />
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{isIncome ? "Add Income / Savings" : "Add Expense"}</div>
           <button onClick={onClose} style={{ background: T.elevated, border: "none", borderRadius: 9999, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: T.textMuted }}>
             <Icon name="x" size={14} />
           </button>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 16 }}>
-          {CATS.map(c => (
+
+        {/* Category chips */}
+        <div style={{ display: "grid", gridTemplateColumns: isIncome ? "1fr 1fr" : "repeat(3,1fr)", gap: 8, marginBottom: 14 }}>
+          {cats.map(c => (
             <button key={c.id} onClick={() => setCat(c.id)} style={{ padding: "10px 6px", borderRadius: 10, background: cat === c.id ? c.color + "22" : T.elevated, border: `1px solid ${cat === c.id ? c.color + "55" : T.border}`, color: cat === c.id ? c.color : T.textMuted, fontSize: 11, fontWeight: cat === c.id ? 700 : 500, cursor: "pointer", fontFamily: "inherit", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
               <Icon name={c.icon} size={16} color={cat === c.id ? c.color : T.textDim} />
               {c.label}
             </button>
           ))}
         </div>
-        <input
-          type="number"
-          step="0.05"
-          min="0"
-          value={amount}
-          onChange={e => setAmount(e.target.value)}
-          placeholder="CHF 0.00"
-          style={{ width: "100%", background: T.elevated, border: `1px solid ${T.border}`, borderRadius: T.rInput, padding: "12px 14px", fontSize: 20, fontWeight: 700, color: T.text, fontFamily: T.fontMono, outline: "none", marginBottom: 10, boxSizing: "border-box" }}
-        />
-        <input
-          type="text"
-          value={desc}
-          onChange={e => setDesc(e.target.value)}
-          placeholder="Description (optional)"
-          style={{ width: "100%", background: T.elevated, border: `1px solid ${T.border}`, borderRadius: T.rInput, padding: "10px 14px", fontSize: 13, color: T.text, fontFamily: "inherit", outline: "none", marginBottom: 16, boxSizing: "border-box" }}
-        />
-        <button onClick={handleSave} disabled={saving || !amount} style={{ width: "100%", padding: "13px 0", background: T.amber, color: "#0A0A0F", border: "none", borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: saving || !amount ? "not-allowed" : "pointer", opacity: saving || !amount ? 0.5 : 1, fontFamily: "inherit" }}>
-          {saving ? "Saving…" : "Add Expense"}
+
+        {/* Amount */}
+        <input type="number" step="0.05" min="0" value={amount} onChange={e => setAmount(e.target.value)} placeholder="CHF 0.00"
+          style={{ width: "100%", background: T.elevated, border: `1px solid ${T.border}`, borderRadius: T.rInput, padding: "12px 14px", fontSize: 24, fontWeight: 700, color: T.text, fontFamily: T.fontMono, outline: "none", marginBottom: 10, boxSizing: "border-box", textAlign: "center" }} />
+
+        {/* Description */}
+        <input type="text" value={desc} onChange={e => setDesc(e.target.value)} placeholder={isIncome ? "Source (e.g. Monthly salary)" : "Description (optional)"}
+          style={{ width: "100%", background: T.elevated, border: `1px solid ${T.border}`, borderRadius: T.rInput, padding: "10px 14px", fontSize: 13, color: T.text, fontFamily: "inherit", outline: "none", marginBottom: 8, boxSizing: "border-box" }} />
+
+        {/* Bank account (income mode) */}
+        {isIncome && (
+          <input type="text" value={account} onChange={e => setAccount(e.target.value)} placeholder="Bank account (e.g. ZKB, IBAN …)"
+            style={{ width: "100%", background: T.elevated, border: `1px solid ${T.border}`, borderRadius: T.rInput, padding: "10px 14px", fontSize: 13, color: T.text, fontFamily: "inherit", outline: "none", marginBottom: 8, boxSizing: "border-box" }} />
+        )}
+
+        <div style={{ height: 8 }} />
+        <button onClick={handleSave} disabled={saving || !amount}
+          style={{ width: "100%", padding: "13px 0", background: accentColor, color: "#0A0A0F", border: "none", borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: saving || !amount ? "not-allowed" : "pointer", opacity: saving || !amount ? 0.5 : 1, fontFamily: "inherit" }}>
+          {saving ? "Saving…" : isIncome ? "Add Income" : "Add Expense"}
         </button>
       </div>
     </div>
   );
 }
 
+// Speed dial for add expense vs income
+function BudgetFAB({ onAddExpense, onAddIncome }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ position: "absolute", right: 20, bottom: 92, zIndex: 20, display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+      {open && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: T.text, background: T.elevated, border: `1px solid ${T.border}`, borderRadius: 8, padding: "4px 10px", whiteSpace: "nowrap" }}>Add Income</span>
+            <button onClick={() => { setOpen(false); onAddIncome(); }}
+              style={{ width: 44, height: 44, borderRadius: 9999, background: `${T.teal}22`, border: `1px solid ${T.teal}44`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Icon name="trend-up" size={18} color={T.teal} />
+            </button>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: T.text, background: T.elevated, border: `1px solid ${T.border}`, borderRadius: 8, padding: "4px 10px", whiteSpace: "nowrap" }}>Add Expense</span>
+            <button onClick={() => { setOpen(false); onAddExpense(); }}
+              style={{ width: 44, height: 44, borderRadius: 9999, background: `${T.amber}22`, border: `1px solid ${T.amber}44`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Icon name="budget" size={18} color={T.amber} />
+            </button>
+          </div>
+        </>
+      )}
+      <button onClick={() => setOpen(o => !o)}
+        style={{ width: 56, height: 56, borderRadius: 9999, background: T.amber, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 8px 24px ${T.amber}55`, transform: open ? "rotate(45deg)" : "none", transition: "transform 0.2s cubic-bezier(.34,1.56,.64,1)" }}>
+        <Icon name="plus" size={24} color="#0A0A0F" strokeWidth={2.4} />
+      </button>
+    </div>
+  );
+}
+
 export default function BudgetPage({ profile, onProfile }) {
-  const [summary, setSummary] = useState(MOCK_SUMMARY);
   const [entries, setEntries] = useState(MOCK_ENTRIES);
   const [activeDonut, setActiveDonut] = useState(null);
-  const [showAdd, setShowAdd] = useState(false);
+  const [showAddExpense, setShowAddExpense] = useState(false);
+  const [showAddIncome, setShowAddIncome] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState(null);
 
   useEffect(() => {
     (async () => {
       try {
-        const [s, e] = await Promise.all([budgetAPI.getSummary(), budgetAPI.getAll("month")]);
-        if (s) setSummary(s);
-        if (e?.entries?.length) setEntries(e.entries);
-      } catch {
-        // use mock
-      } finally {
-        setLoading(false);
-      }
+        const e = await budgetAPI.getAll("month");
+        if (e?.entries) setEntries(e.entries);
+      } catch {}
+      setLoading(false);
     })();
   }, []);
 
   async function reload() {
     try {
-      const [s, e] = await Promise.all([budgetAPI.getSummary(), budgetAPI.getAll("month")]);
-      if (s) setSummary(s);
-      if (e?.entries?.length) setEntries(e.entries);
+      const e = await budgetAPI.getAll("month");
+      if (e?.entries) setEntries(e.entries);
     } catch {}
   }
 
-  const net = (summary?.income || 0) - (summary?.expenses || 0);
-  const catData = summary?.by_category || MOCK_SUMMARY.by_category;
+  // Separate income/savings from expenses
+  const isIncomeEntry = e => e.category === "income" || e.category === "savings";
+  const incomeEntries = entries.filter(isIncomeEntry);
+  const expenseEntries = entries.filter(e => !isIncomeEntry(e));
+
+  const totalIncome = incomeEntries.reduce((s, e) => s + e.amount, 0);
+  const totalExpenses = expenseEntries.reduce((s, e) => s + e.amount, 0);
+  const balance = totalIncome - totalExpenses;
+  const savingsPct = totalIncome > 0 ? Math.round((balance / totalIncome) * 100) : 0;
+
+  const catData = expenseEntries.reduce((acc, e) => { acc[e.category] = (acc[e.category] || 0) + e.amount; return acc; }, {});
   const totalExp = Object.values(catData).reduce((s, v) => s + v, 0) || 1;
   const grouped = groupByDate(entries);
 
@@ -289,34 +330,25 @@ export default function BudgetPage({ profile, onProfile }) {
       />
 
       <PageScroll>
-        {/* 2-col stat chips */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, padding: "0 20px 16px" }}>
-          {[
-            { label: "Income", value: `CHF ${(summary?.income || 0).toFixed(0)}`, color: T.teal, icon: "trend-up" },
-            { label: "Expenses", value: `CHF ${(summary?.expenses || 0).toFixed(0)}`, color: T.negative, icon: "budget" },
-          ].map(s => (
-            <div key={s.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.rCard, padding: "14px 16px", display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ width: 34, height: 34, borderRadius: 10, background: s.color + "22", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Icon name={s.icon} size={17} color={s.color} />
-              </div>
-              <div>
-                <div style={{ fontSize: 10, color: T.textMuted, fontWeight: 600, letterSpacing: 0.4, textTransform: "uppercase" }}>{s.label}</div>
-                <div style={{ fontSize: 17, fontWeight: 700, color: T.text, fontFamily: T.fontMono, marginTop: 1 }}>{s.value}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Net balance card with sparkline */}
-        <div style={{ margin: "0 20px 16px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.rCard, padding: "16px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <div style={{ fontSize: 10, color: T.textMuted, fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 4 }}>Net Balance</div>
-            <div style={{ fontSize: 28, fontWeight: 800, fontFamily: T.fontMono, color: net >= 0 ? T.teal : T.negative, letterSpacing: -1 }}>
-              CHF {net >= 0 ? "+" : ""}{net.toFixed(0)}
-            </div>
-            <div style={{ fontSize: 11, color: T.textMuted, marginTop: 3 }}>this month</div>
+        {/* Balance hero card */}
+        <div style={{ margin: "0 20px 14px", background: balance >= 0 ? `linear-gradient(135deg,${T.teal}18,${T.surface})` : `linear-gradient(135deg,${T.negative}18,${T.surface})`, border: `1px solid ${balance >= 0 ? T.teal + "33" : T.negative + "33"}`, borderRadius: T.rCard, padding: "20px 18px" }}>
+          <div style={{ fontSize: 10, color: T.textMuted, fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 6 }}>Balance this month</div>
+          <div style={{ fontSize: 36, fontWeight: 800, fontFamily: T.fontMono, color: balance >= 0 ? T.teal : T.negative, letterSpacing: -1, lineHeight: 1, marginBottom: 4 }}>
+            {balance >= 0 ? "+" : ""}CHF {Math.abs(balance).toFixed(2)}
           </div>
-          <SparklineSVG data={summary?.sparkline || MOCK_SUMMARY.sparkline} />
+          {savingsPct > 0 && <div style={{ fontSize: 11, color: T.textMuted }}>{savingsPct}% saved this month</div>}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 14 }}>
+            {[
+              { label: "Income", value: `CHF ${totalIncome.toFixed(0)}`, color: T.teal },
+              { label: "Spent", value: `CHF ${totalExpenses.toFixed(0)}`, color: T.negative },
+              { label: "Saved", value: `CHF ${Math.max(0, balance).toFixed(0)}`, color: "#5C8FFC" },
+            ].map(({ label, value, color }) => (
+              <div key={label} style={{ background: "rgba(10,10,15,0.3)", borderRadius: 10, padding: "8px 6px", textAlign: "center" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color, fontFamily: T.fontMono }}>{value}</div>
+                <div style={{ fontSize: 9, color: T.textDim, textTransform: "uppercase", letterSpacing: 0.4, marginTop: 2 }}>{label}</div>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Donut + legend */}
@@ -325,7 +357,7 @@ export default function BudgetPage({ profile, onProfile }) {
           <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
             <DonutChart data={catData} active={activeDonut} onSelect={setActiveDonut} />
             <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
-              {CATS.map(cat => {
+              {EXPENSE_CATS.map(cat => {
                 const val = catData[cat.id] || 0;
                 const pct = ((val / totalExp) * 100).toFixed(0);
                 const isActive = activeDonut === cat.id;
@@ -346,7 +378,7 @@ export default function BudgetPage({ profile, onProfile }) {
         <div style={{ padding: "0 20px 16px" }}>
           <SectionHead title="Category budgets" />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            {CATS.map(cat => {
+            {EXPENSE_CATS.map(cat => {
               const spent = catData[cat.id] || 0;
               const budget = CAT_BUDGETS[cat.id] || 200;
               const pct = Math.min(spent / budget, 1);
@@ -372,7 +404,15 @@ export default function BudgetPage({ profile, onProfile }) {
         {/* Week bar chart */}
         <div style={{ margin: "0 20px 16px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.rCard, padding: "16px 18px" }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: T.textMuted, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 14 }}>This Week</div>
-          <WeekBarsChart bars={summary?.week_bars || MOCK_SUMMARY.week_bars} avg={summary?.week_avg || MOCK_SUMMARY.week_avg} />
+          <WeekBarsChart bars={(() => {
+            const DAYS_BACK = [6,5,4,3,2,1,0];
+            const today = new Date();
+            return DAYS_BACK.map(d => {
+              const dt = new Date(today); dt.setDate(today.getDate() - d);
+              const iso = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
+              return expenseEntries.filter(e => e.date === iso).reduce((s, e) => s + e.amount, 0);
+            });
+          })()} avg={expenseEntries.length > 0 ? totalExpenses / 7 : 0} />
         </div>
 
         {/* Transaction history */}
@@ -413,8 +453,9 @@ export default function BudgetPage({ profile, onProfile }) {
         </div>
       </PageScroll>
 
-      <Fab onClick={() => setShowAdd(true)} icon="plus" color={T.amber} />
-      {showAdd && <AddExpenseSheet onClose={() => setShowAdd(false)} onAdded={reload} />}
+      <BudgetFAB onAddExpense={() => setShowAddExpense(true)} onAddIncome={() => setShowAddIncome(true)} />
+      {showAddExpense && <AddEntrySheet type="expense" onClose={() => setShowAddExpense(false)} onAdded={reload} />}
+      {showAddIncome && <AddEntrySheet type="income" onClose={() => setShowAddIncome(false)} onAdded={reload} />}
       {selectedCategory && (
         <CategoryDetailPage
           category={selectedCategory}

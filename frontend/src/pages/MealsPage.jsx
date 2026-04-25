@@ -9,10 +9,15 @@ import { mealsAPI, userAPI, aiAPI } from "../utils/api";
 import MealDetailPage from "./details/MealDetailPage";
 
 const DAYS_SHORT = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const MEAL_GROUPS = ["Breakfast","Lunch","Dinner","Snacks"];
 const DAY_NAMES_FULL = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 
 function todayDOW() { return (new Date().getDay() + 6) % 7; }
+function toISO(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function getTodayISO() { return toISO(new Date()); }
 
 function adherenceColor(pct) {
   if (pct >= 0.8) return T.teal;
@@ -24,32 +29,70 @@ function inp(focused) {
   return { width:"100%", background:T.elevated, border:`1px solid ${focused?T.teal:T.border}`, borderRadius:T.rInput, padding:"10px 12px", color:T.text, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" };
 }
 
-function WeekStrip({ history, calorieTarget }) {
+function WeekStrip({ history, calorieTarget, selectedDate, onSelectDate }) {
   const todayIdx = todayDOW();
   const slots = DAYS_SHORT.map((d, i) => {
     const date = new Date();
     date.setDate(date.getDate() + (i - todayIdx));
-    const iso = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
+    const iso = toISO(date);
     const bucket = history?.[iso];
     const kcal = bucket?.total_calories || 0;
     const pct = calorieTarget ? Math.min(kcal / calorieTarget, 1) : 0;
-    return { d, i, pct, hasData:!!bucket };
+    const isSelected = iso === selectedDate;
+    const isFuture = date > new Date() && !isSelected;
+    return { d, i, iso, pct, hasData:!!bucket, isSelected, isFuture };
   });
   return (
-    <div style={{ display:"flex", gap:4, alignItems:"flex-end", height:52 }}>
-      {slots.map(({ d, i, pct, hasData }) => {
+    <div style={{ display:"flex", gap:4, alignItems:"flex-end", height:56 }}>
+      {slots.map(({ d, i, iso, pct, hasData, isSelected, isFuture }) => {
         const isToday = i === todayIdx;
-        const color = hasData ? adherenceColor(pct) : T.border;
-        const barH = Math.max(pct * 36, hasData ? 4 : 2);
+        const color = isSelected ? T.teal : (hasData ? adherenceColor(pct) : T.border);
+        const barH = isSelected ? Math.max(pct * 36, 6) : Math.max(pct * 36, hasData ? 4 : 2);
         return (
-          <div key={d} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+          <div key={d} onClick={() => !isFuture && onSelectDate?.(iso)}
+            style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:4, cursor:isFuture?"default":"pointer" }}>
             <div style={{ flex:1, display:"flex", alignItems:"flex-end", width:"100%" }}>
-              <div style={{ width:"100%", height:barH, background:color, borderRadius:3, opacity:isToday?1:0.7, transition:"height 0.3s ease" }} />
+              <div style={{
+                width:"100%", height:barH, background:color, borderRadius:3,
+                opacity:isFuture?0.3:isToday||isSelected?1:0.7,
+                transition:"all 0.25s ease",
+                boxShadow:isSelected?`0 0 8px ${T.teal}66`:undefined,
+              }} />
             </div>
-            <span style={{ fontSize:9, fontWeight:isToday?700:500, color:isToday?T.teal:T.textDim, letterSpacing:0.3, fontFamily:T.fontMono }}>{d}</span>
+            <span style={{ fontSize:9, fontWeight:isToday||isSelected?700:500, color:isSelected?T.teal:isToday?T.teal:T.textDim, letterSpacing:0.3, fontFamily:T.fontMono }}>
+              {d}
+            </span>
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function DayNav({ selectedDate, onNav }) {
+  const d = new Date(selectedDate + "T12:00:00");
+  const dow = (d.getDay() + 6) % 7;
+  const dayLabel = selectedDate === getTodayISO() ? "Today" : DAY_NAMES_FULL[dow];
+  const dateStr = `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
+  const todayISO = getTodayISO();
+  const isToday = selectedDate === todayISO;
+  const isFuture = selectedDate > todayISO;
+
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:6, padding:"2px 16px 10px" }}>
+      <button onClick={() => onNav(-1)}
+        style={{ width:32, height:32, borderRadius:9999, background:T.elevated, border:`1px solid ${T.border}`, color:T.text, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", flexShrink:0 }}>
+        <Icon name="chev-left" size={15} />
+      </button>
+      <div style={{ flex:1, textAlign:"center" }}>
+        <span style={{ fontSize:15, fontWeight:700, color:T.text }}>{dayLabel}</span>
+        <span style={{ fontSize:13, color:T.textMuted, marginLeft:6 }}>{dateStr}</span>
+        {isToday && <span style={{ marginLeft:6, fontSize:9, fontWeight:700, color:T.teal, background:`${T.teal}22`, padding:"2px 6px", borderRadius:6, verticalAlign:"middle" }}>NOW</span>}
+      </div>
+      <button onClick={() => !isFuture && onNav(1)}
+        style={{ width:32, height:32, borderRadius:9999, background:T.elevated, border:`1px solid ${T.border}`, color:isFuture?T.textDim:T.text, display:"flex", alignItems:"center", justifyContent:"center", cursor:isFuture?"default":"pointer", flexShrink:0, opacity:isFuture?0.4:1 }}>
+        <Icon name="chev-right" size={15} />
+      </button>
     </div>
   );
 }
@@ -340,18 +383,24 @@ export default function MealsPage({ profile, onProfile }) {
   const [addModal, setAddModal] = useState(null);
   const [targets, setTargets] = useState({ calories:2100, protein:190, carbs:200, fat:70 });
   const [selectedMeal, setSelectedMeal] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(getTodayISO);
 
-  const totalCals = todayMeals.reduce((s,m)=>s+(m.calories||0),0);
-  const totalProtein = todayMeals.reduce((s,m)=>s+(m.protein_g||0),0);
-  const totalCarbs = todayMeals.reduce((s,m)=>s+(m.carbs_g||0),0);
-  const totalFat = todayMeals.reduce((s,m)=>s+(m.fat_g||0),0);
+  const todayISO = getTodayISO();
+  const isToday = selectedDate === todayISO;
+
+  // Meals for the selected date
+  const activeMeals = isToday ? todayMeals : (history[selectedDate]?.meals || []);
+
+  const totalCals = activeMeals.reduce((s,m)=>s+(m.calories||0),0);
+  const totalProtein = activeMeals.reduce((s,m)=>s+(m.protein_g||0),0);
+  const totalCarbs = activeMeals.reduce((s,m)=>s+(m.carbs_g||0),0);
+  const totalFat = activeMeals.reduce((s,m)=>s+(m.fat_g||0),0);
   const calPct = totalCals / targets.calories;
-  const todayDayName = DAY_NAMES_FULL[todayDOW()];
   const adherancePct = Math.round(calPct * 100);
 
   const mealsByGroup = MEAL_GROUPS.reduce((acc,g) => {
     const key = g.toLowerCase();
-    acc[g] = todayMeals.filter(m => {
+    acc[g] = activeMeals.filter(m => {
       const t = (m.meal_type||"").toLowerCase();
       if (g==="Snacks") return t==="snack"||t==="snacks";
       return t===key;
@@ -363,7 +412,7 @@ export default function MealsPage({ profile, onProfile }) {
     setLoading(true);
     try {
       const [todayData, templatesData, historyData, profileData] = await Promise.allSettled([
-        mealsAPI.getToday(), mealsAPI.getTemplates(), mealsAPI.getHistory(7), userAPI.getProfile(),
+        mealsAPI.getToday(), mealsAPI.getTemplates(), mealsAPI.getHistory(14), userAPI.getProfile(),
       ]);
       if (todayData.status==="fulfilled") setTodayMeals(todayData.value.meals||[]);
       if (templatesData.status==="fulfilled") setTemplates(templatesData.value.templates||[]);
@@ -379,10 +428,47 @@ export default function MealsPage({ profile, onProfile }) {
 
   useEffect(()=>{ loadAll(); }, []);
 
+  function navigateDay(delta) {
+    setSelectedDate(prev => {
+      const d = new Date(prev + "T12:00:00");
+      d.setDate(d.getDate() + delta);
+      const next = toISO(d);
+      if (next > todayISO) return prev; // don't go to future
+      return next;
+    });
+  }
+
   async function handleDelete(id) {
     setDeletingId(id);
-    try { await mealsAPI.deleteLog(id); setTodayMeals(prev=>prev.filter(m=>m.id!==id)); } catch {}
+    try {
+      await mealsAPI.deleteLog(id);
+      if (isToday) {
+        setTodayMeals(prev => prev.filter(m => m.id !== id));
+      } else {
+        setHistory(prev => {
+          const bucket = prev[selectedDate];
+          if (!bucket) return prev;
+          return { ...prev, [selectedDate]: { ...bucket, meals: bucket.meals.filter(m => m.id !== id) } };
+        });
+      }
+    } catch {}
     setDeletingId(null);
+  }
+
+  async function handleUpdateMeal(id, updates) {
+    try {
+      const updated = await mealsAPI.updateLog(id, updates);
+      if (isToday) {
+        setTodayMeals(prev => prev.map(m => m.id === id ? { ...m, ...updated } : m));
+      } else {
+        setHistory(prev => {
+          const bucket = prev[selectedDate];
+          if (!bucket) return prev;
+          return { ...prev, [selectedDate]: { ...bucket, meals: bucket.meals.map(m => m.id === id ? { ...m, ...updated } : m) } };
+        });
+      }
+      setSelectedMeal(prev => prev?.id === id ? { ...prev, ...updated } : prev);
+    } catch(e) { alert("Update failed: " + (e.message||"Unknown error")); }
   }
 
   function toggleSupplement(name) { setCheckedSupplements(prev=>({...prev,[name]:!prev[name]})); }
@@ -404,16 +490,15 @@ export default function MealsPage({ profile, onProfile }) {
   return (
     <div style={{ height:"100%", display:"flex", flexDirection:"column", overflow:"hidden", background:T.bg }}>
       <PageHeader
-        title="Meals" subtitle={`${todayDayName} · ${adherancePct}% of target`}
+        title="Meals" subtitle={`${adherancePct}% of target`}
         profile={profile} onProfile={onProfile}
-        trailing={
-          <button style={{ background:T.elevated, border:`1px solid ${T.border}`, borderRadius:9999, width:28, height:28, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", color:T.textMuted, flexShrink:0 }}>
-            <Icon name="history" size={14} color={T.textMuted} />
-          </button>
-        }
       />
 
       <PageScroll padBottom={100}>
+        {/* Day navigation */}
+        <DayNav selectedDate={selectedDate} onNav={navigateDay} />
+
+        {/* Macro card */}
         <div style={{ padding:"0 16px 14px" }}>
           <Card style={{ padding:16, display:"flex", gap:16, alignItems:"center" }}>
             <MacroRing pct={calPct} value={Math.round(totalCals)} target={targets.calories} />
@@ -425,14 +510,16 @@ export default function MealsPage({ profile, onProfile }) {
           </Card>
         </div>
 
+        {/* Week strip - clickable */}
         <div style={{ padding:"0 16px 14px" }}>
           <Card style={{ padding:"12px 14px" }}>
             <div style={{ fontSize:10, fontWeight:600, color:T.textMuted, letterSpacing:0.6, textTransform:"uppercase", marginBottom:10 }}>This week</div>
-            <WeekStrip history={history} calorieTarget={targets.calories} />
+            <WeekStrip history={history} calorieTarget={targets.calories} selectedDate={selectedDate} onSelectDate={setSelectedDate} />
           </Card>
         </div>
 
-        {displaySupplements.length>0 && (
+        {/* Supplements (today only) */}
+        {isToday && displaySupplements.length>0 && (
           <div style={{ paddingBottom:14 }}>
             <div style={{ padding:"0 16px 8px", fontSize:10, fontWeight:600, color:T.textMuted, letterSpacing:0.6, textTransform:"uppercase" }}>Supplements</div>
             <div style={{ display:"flex", gap:8, overflowX:"auto", padding:"0 16px", scrollbarWidth:"none" }}>
@@ -443,30 +530,52 @@ export default function MealsPage({ profile, onProfile }) {
           </div>
         )}
 
+        {/* Meal groups for selected day */}
         <div style={{ paddingBottom:8 }}>
-          <div style={{ padding:"0 16px 8px", fontSize:10, fontWeight:600, color:T.textMuted, letterSpacing:0.6, textTransform:"uppercase" }}>Today's meals</div>
+          <div style={{ padding:"0 16px 8px", fontSize:10, fontWeight:600, color:T.textMuted, letterSpacing:0.6, textTransform:"uppercase" }}>
+            {isToday ? "Today's meals" : "Meals logged"}
+          </div>
           {MEAL_GROUPS.map(g=>(
-            <MealGroup key={g} groupName={g} meals={mealsByGroup[g]||[]} onDelete={handleDelete} deletingId={deletingId} onAddClick={name=>setAddModal(name)} onMealClick={m=>setSelectedMeal(m)} />
+            <MealGroup key={g} groupName={g} meals={mealsByGroup[g]||[]} onDelete={handleDelete} deletingId={deletingId}
+              onAddClick={isToday ? name=>setAddModal(name) : ()=>{}}
+              onMealClick={m=>setSelectedMeal(m)} />
           ))}
           {(()=>{
             const grouped = Object.values(mealsByGroup).flat().map(m=>m.id);
-            const other = todayMeals.filter(m=>!grouped.includes(m.id));
+            const other = activeMeals.filter(m=>!grouped.includes(m.id));
             if (!other.length) return null;
-            return <MealGroup groupName="Other" meals={other} onDelete={handleDelete} deletingId={deletingId} onAddClick={name=>setAddModal(name)} onMealClick={m=>setSelectedMeal(m)} />;
+            return <MealGroup groupName="Other" meals={other} onDelete={handleDelete} deletingId={deletingId} onAddClick={()=>{}} onMealClick={m=>setSelectedMeal(m)} />;
           })()}
+          {activeMeals.length === 0 && (
+            <div style={{ padding:"32px 20px", textAlign:"center", color:T.textDim, fontSize:13 }}>
+              No meals logged {isToday ? "today" : "this day"}
+            </div>
+          )}
         </div>
       </PageScroll>
 
-      <Fab onClick={()=>setAddModal("Breakfast")} icon="plus" color={T.teal} bottom={100} right={20} />
+      {isToday && <Fab onClick={()=>setAddModal("Breakfast")} icon="plus" color={T.teal} bottom={100} right={20} />}
 
       {addModal && (
         <AddMealSheet groupName={addModal} templates={templates} onRefresh={loadAll} onClose={()=>setAddModal(null)} />
       )}
       {selectedMeal && (
         <MealDetailPage
-          meal={{ food:selectedMeal.name, kcal:Math.round(selectedMeal.calories||0), P:Math.round(selectedMeal.protein_g||0), C:Math.round(selectedMeal.carbs_g||0), F:Math.round(selectedMeal.fat_g||0) }}
+          meal={selectedMeal}
+          targets={targets}
           onBack={()=>setSelectedMeal(null)}
           onDelete={()=>{ handleDelete(selectedMeal.id); setSelectedMeal(null); }}
+          onUpdate={(updates)=>handleUpdateMeal(selectedMeal.id, updates)}
+          onSaveAsTemplate={async()=>{
+            try {
+              await mealsAPI.saveTemplate({
+                name:selectedMeal.name, meal_type:selectedMeal.meal_type||"lunch",
+                calories:selectedMeal.calories, protein_g:selectedMeal.protein_g,
+                carbs_g:selectedMeal.carbs_g, fat_g:selectedMeal.fat_g,
+              });
+              alert("Saved as template!");
+            } catch(e) { alert("Failed: " + e.message); }
+          }}
         />
       )}
     </div>
