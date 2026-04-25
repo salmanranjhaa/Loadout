@@ -9,17 +9,64 @@
 }
 
 body {
-  font-family: "IBM Plex Sans", system-ui, sans-serif;
-  background: #0c0f14;
-  color: #e2e8f0;
+  font-family: "Inter", -apple-system, "SF Pro Display", system-ui, sans-serif;
+  background: #0A0A0F;
+  color: #F4F4F8;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
 }
 
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
+/* Hide scrollbars globally but keep scrolling */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+}
 
-/* I define the safe area for mobile notch displays */
-.safe-top { padding-top: env(safe-area-inset-top); }
+/* Safe area helpers for notched devices */
+.safe-top    { padding-top: env(safe-area-inset-top); }
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+
+/* Pulse animation for AI bubble */
+@keyframes lo-pulse {
+  0%   { transform: scale(1); opacity: 0.5; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+.animate-lo-pulse {
+  animation: lo-pulse 2s ease-out infinite;
+}
+
+/* Sparkle animation */
+@keyframes lo-sparkle {
+  0%, 100% { transform: scale(1) rotate(0deg); opacity: 0.8; }
+  50%       { transform: scale(1.15) rotate(12deg); opacity: 1; }
+}
+.animate-lo-sparkle {
+  animation: lo-sparkle 2s ease-in-out infinite;
+}
+
+/* Confetti drop */
+@keyframes lo-confetti {
+  0%   { transform: translateY(0) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(900px) rotate(var(--rot, 360deg)); opacity: 0; }
+}
+
+/* Slide in from right */
+@keyframes lo-slide-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+.animate-slide-in {
+  animation: lo-slide-in 0.25s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+/* Timer fade in */
+@keyframes lo-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up {
+  animation: lo-fade-up 0.3s ease forwards;
+}

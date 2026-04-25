@@ -1,651 +1,314 @@
 import { useState, useEffect } from "react";
-import { Scale, Target, Activity, Flame, Utensils, Wallet, TrendingDown, TrendingUp, ArrowDown } from "lucide-react";
-import { Line, Bar } from "react-chartjs-2";
-import {
-  Chart as ChartJS,
-  CategoryScale, LinearScale, PointElement, LineElement,
-  BarElement, Tooltip, Filler,
-} from "chart.js";
-import { analyticsAPI, workoutAPI, budgetAPI, userAPI } from "../utils/api";
+import { T } from "../design/tokens";
+import { Icon } from "../design/icons";
+import { PageHeader, PageScroll, SectionHead, MiniStat, LoadingDots } from "../design/components";
+import { analyticsAPI, workoutAPI } from "../utils/api";
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Filler);
+const RANGES = ["Week", "Month", "3 Months"];
 
-const TABS = ["Overview", "Weight", "Fitness", "Nutrition", "Profile"];
+const MOCK_WEIGHTS = Array.from({ length: 30 }, (_, i) => ({
+  date: new Date(Date.now() - (29 - i) * 86400000).toISOString().slice(0, 10),
+  weight_kg: 82.4 - i * 0.028 + Math.sin(i * 0.7) * 0.3,
+}));
 
-const CHART_OPTS = {
-  responsive: true,
-  plugins: { legend: { display: false }, tooltip: { mode: "index", intersect: false } },
-  scales: {
-    x: { grid: { color: "rgba(148,163,184,0.08)" }, ticks: { color: "#64748b", font: { size: 9 } } },
-    y: { grid: { color: "rgba(148,163,184,0.08)" }, ticks: { color: "#64748b", font: { size: 9 } } },
-  },
-};
+const MOCK_PRs = [
+  { exercise: "Bench Press",   value: "102.5 kg", date: "Apr 18" },
+  { exercise: "Squat",         value: "135 kg",   date: "Apr 12" },
+  { exercise: "Deadlift",      value: "160 kg",   date: "Apr 5"  },
+  { exercise: "Overhead Press",value: "70 kg",    date: "Mar 28" },
+];
 
-const EMPTY_PROFILE_FORM = {
-  current_weight_kg: "",
-  target_weight_kg: "",
-  height_cm: "",
-  age: "",
-  gender: "",
-  daily_calorie_target: "",
-  daily_protein_target: "",
-  daily_carb_target: "",
-  daily_fat_target: "",
-  preferred_currency: "CHF",
-};
+const MOCK_NUTRITION = Array.from({ length: 7 }, (_, i) => ({
+  label: ["M","T","W","T","F","S","S"][i],
+  protein: 155 + Math.floor(Math.random() * 40),
+  carbs:   200 + Math.floor(Math.random() * 60),
+  fat:     65  + Math.floor(Math.random() * 20),
+}));
 
-function valueOrEmpty(value) {
-  return value === null || value === undefined ? "" : String(value);
-}
+function SparklineArea({ data, color = T.teal, height = 100, width = "100%" }) {
+  if (!data || data.length < 2) return null;
+  const vals = data.map(d => d.weight_kg);
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const range = max - min || 1;
+  const W = 300;
+  const H = height;
+  const pts = vals.map((v, i) => [
+    (i / (vals.length - 1)) * W,
+    H - ((v - min) / range) * (H - 12) - 6,
+  ]);
+  const path = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(" ");
+  const fill = `${path} L ${W} ${H} L 0 ${H} Z`;
 
-function toNumberOrNull(value) {
-  if (value === null || value === undefined) return null;
-  const trimmed = String(value).trim();
-  if (!trimmed) return null;
-  const parsed = Number(trimmed);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-
-function StatCard({ icon: Icon, value, label, color, sub }) {
   return (
-    <div className="bg-bg-card rounded-xl p-3 text-center">
-      {Icon && <Icon size={14} className={`${color} mx-auto mb-1`} />}
-      <div className={`text-xl font-bold ${color}`}>{value ?? "—"}</div>
-      <div className="text-[10px] text-slate-500">{label}</div>
-      {sub && <div className="text-[9px] text-slate-600 mt-0.5">{sub}</div>}
-    </div>
+    <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ overflow: "visible" }}>
+      <defs>
+        <linearGradient id="area-grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
+          <stop offset="100%" stopColor={color} stopOpacity="0.02" />
+        </linearGradient>
+      </defs>
+      <path d={fill} fill="url(#area-grad)" />
+      <path d={path} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      {/* Last point dot */}
+      <circle cx={pts[pts.length - 1][0]} cy={pts[pts.length - 1][1]} r="4" fill={color} />
+    </svg>
   );
 }
 
-export default function AnalyticsPage() {
-  const [tab, setTab] = useState("Overview");
-  const [dashboard, setDashboard] = useState(null);
-  const [profile, setProfile] = useState(null);
-  const [profileForm, setProfileForm] = useState(EMPTY_PROFILE_FORM);
-  const [savingProfile, setSavingProfile] = useState(false);
-  const [profileSaved, setProfileSaved] = useState(false);
-  const [weights, setWeights] = useState([]);
-  const [workouts, setWorkouts] = useState([]);
-  const [weightInput, setWeightInput] = useState("");
-  const [loggingWeight, setLoggingWeight] = useState(false);
-  const [weightSaved, setWeightSaved] = useState(false);
-  const [budgetSummary, setBudgetSummary] = useState(null);
+function Heatmap({ workouts }) {
+  // 13 weeks × 7 days
+  const COLS = 13;
+  const ROWS = 7;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
-  useEffect(() => { loadAll(); }, []);
-
-  async function loadAll() {
-    try {
-      const [dash, wData, bSum, wkData, userProfile] = await Promise.all([
-        analyticsAPI.getDashboard(),
-        analyticsAPI.getWeights(30),
-        budgetAPI.getSummary(),
-        workoutAPI.getAll(30),
-        userAPI.getProfile(),
-      ]);
-      setDashboard(dash);
-      setWeights(wData.weights || []);
-      setBudgetSummary(bSum);
-      setWorkouts(wkData.workouts || []);
-      setProfile(userProfile);
-      setProfileForm({
-        current_weight_kg: valueOrEmpty(userProfile.current_weight_kg),
-        target_weight_kg: valueOrEmpty(userProfile.target_weight_kg),
-        height_cm: valueOrEmpty(userProfile.height_cm),
-        age: valueOrEmpty(userProfile.age),
-        gender: valueOrEmpty(userProfile.gender),
-        daily_calorie_target: valueOrEmpty(userProfile.daily_calorie_target),
-        daily_protein_target: valueOrEmpty(userProfile.daily_protein_target),
-        daily_carb_target: valueOrEmpty(userProfile.daily_carb_target),
-        daily_fat_target: valueOrEmpty(userProfile.daily_fat_target),
-        preferred_currency: userProfile.preferred_currency || "CHF",
-      });
-    } catch {/* silently fail */}
-  }
-
-  async function handleLogWeight() {
-    if (!weightInput) return;
-    setLoggingWeight(true);
-    try {
-      await analyticsAPI.logWeight({ weight_kg: parseFloat(weightInput) });
-      setWeightInput("");
-      setWeightSaved(true);
-      setTimeout(() => setWeightSaved(false), 2000);
-      await loadAll();
-    } catch (e) {
-      alert(e.message);
-    }
-    setLoggingWeight(false);
-  }
-
-  function updateProfileField(field, value) {
-    setProfileForm(prev => ({ ...prev, [field]: value }));
-  }
-
-  async function saveProfile() {
-    setSavingProfile(true);
-    setProfileSaved(false);
-    try {
-      await userAPI.updateProfile({
-        current_weight_kg: toNumberOrNull(profileForm.current_weight_kg),
-        target_weight_kg: toNumberOrNull(profileForm.target_weight_kg),
-        height_cm: toNumberOrNull(profileForm.height_cm),
-        age: toNumberOrNull(profileForm.age),
-        gender: (profileForm.gender || "").trim() || null,
-        daily_calorie_target: toNumberOrNull(profileForm.daily_calorie_target),
-        daily_protein_target: toNumberOrNull(profileForm.daily_protein_target),
-        daily_carb_target: toNumberOrNull(profileForm.daily_carb_target),
-        daily_fat_target: toNumberOrNull(profileForm.daily_fat_target),
-        preferred_currency: (profileForm.preferred_currency || "").trim().toUpperCase() || "CHF",
-      });
-      setProfileSaved(true);
-      setTimeout(() => setProfileSaved(false), 2000);
-      await loadAll();
-    } catch (e) {
-      alert(e.message || "Failed to save profile");
-    } finally {
-      setSavingProfile(false);
+  const cells = [];
+  for (let col = COLS - 1; col >= 0; col--) {
+    for (let row = 0; row < ROWS; row++) {
+      const d = new Date(today);
+      const daysBack = col * 7 + (ROWS - 1 - row) - (today.getDay() === 0 ? 6 : today.getDay() - 1);
+      d.setDate(today.getDate() - daysBack);
+      const dateStr = d.toISOString().slice(0, 10);
+      const count = workouts.filter(w => (w.date || w.logged_at?.slice(0,10)) === dateStr).length;
+      cells.push({ col: COLS - 1 - col, row, count, date: dateStr });
     }
   }
 
-  const current = dashboard?.weight.current;
-  const weekChange = dashboard?.weight.week_change;
-  const goalWeight = toNumberOrNull(profile?.target_weight_kg);
-  const toTarget = current != null && goalWeight != null ? (current - goalWeight).toFixed(1) : null;
+  const cellSize = 11;
+  const gap = 3;
+  const totalW = COLS * (cellSize + gap) - gap;
+  const totalH = ROWS * (cellSize + gap) - gap;
 
-  const weightSlice = weights.slice(-21);
-  const weightLineData = {
-    labels: weightSlice.map(w => w.date.slice(5)),
-    datasets: [{
-      data: weightSlice.map(w => w.weight_kg),
-      borderColor: "#3b82f6",
-      backgroundColor: "rgba(59,130,246,0.08)",
-      fill: true, tension: 0.4,
-      pointRadius: 3, pointBackgroundColor: "#3b82f6",
-    }],
-  };
-
-  // Workouts per day (last 14 days)
-  const last14 = Array.from({ length: 14 }, (_, i) => {
-    const d = new Date(); d.setDate(d.getDate() - (13 - i));
-    return d.toISOString().slice(0, 10);
-  });
-  const workoutsByDay = last14.map(day => ({
-    label: day.slice(5),
-    value: workouts.filter(w => w.date === day).length,
-  }));
-  const workoutBarData = {
-    labels: workoutsByDay.map(d => d.label),
-    datasets: [{
-      data: workoutsByDay.map(d => d.value),
-      backgroundColor: "rgba(52,211,153,0.5)",
-      borderColor: "#34d399",
-      borderWidth: 1, borderRadius: 3,
-    }],
-  };
-
-  const calorieTarget = toNumberOrNull(profile?.daily_calorie_target) || 2100;
-  const proteinTarget = toNumberOrNull(profile?.daily_protein_target) || 190;
-  const currencyCode = (profile?.preferred_currency || "CHF").toUpperCase();
-  const formatMoney = (amount) => `${currencyCode} ${Number(amount || 0).toFixed(0)}`;
-  const avgCal = dashboard?.nutrition_this_week.avg_calories;
-  const avgPro = dashboard?.nutrition_this_week.avg_protein;
+  function intensityColor(count) {
+    if (count === 0) return T.elevated2;
+    if (count === 1) return T.teal + "55";
+    if (count === 2) return T.teal + "99";
+    return T.teal;
+  }
 
   return (
-    <div className="px-4 pt-4 pb-6 max-w-lg mx-auto">
-      <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent mb-4">
-        Analytics
-      </h1>
+    <svg width={totalW} height={totalH} viewBox={`0 0 ${totalW} ${totalH}`}>
+      {cells.map((c, i) => (
+        <rect
+          key={i}
+          x={c.col * (cellSize + gap)}
+          y={c.row * (cellSize + gap)}
+          width={cellSize}
+          height={cellSize}
+          rx={2}
+          fill={intensityColor(c.count)}
+        />
+      ))}
+    </svg>
+  );
+}
 
-      {/* Tabs */}
-      <div className="flex gap-1 mb-4 bg-slate-800/50 rounded-xl p-1">
-        {TABS.map(t => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
-              tab === t ? "bg-slate-700 text-white" : "text-slate-500"
-            }`}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
+function StackedBarChart({ data }) {
+  if (!data || data.length === 0) return null;
+  const maxTotal = Math.max(...data.map(d => d.protein + d.carbs + d.fat));
+  const H = 80;
+  const barW = 26;
+  const gap = 8;
+  const W = data.length * (barW + gap) - gap;
 
-      {/* ── OVERVIEW TAB ── */}
-      {tab === "Overview" && (
-        <div className="space-y-4">
+  return (
+    <svg width="100%" height={H + 20} viewBox={`0 0 ${W} ${H + 20}`}>
+      {data.map((d, i) => {
+        const total = d.protein + d.carbs + d.fat;
+        const scale = H / maxTotal;
+        const fatH    = d.fat    * scale;
+        const carbsH  = d.carbs  * scale;
+        const protH   = d.protein * scale;
+        const x = i * (barW + gap);
+        let y = H;
+        return (
+          <g key={i}>
+            {[
+              { h: fatH,   color: T.violet },
+              { h: carbsH, color: T.amber  },
+              { h: protH,  color: T.teal   },
+            ].map((seg, si) => {
+              y -= seg.h;
+              return (
+                <rect key={si} x={x} y={y} width={barW} height={seg.h} fill={seg.color} rx={si === 2 ? 3 : 0} />
+              );
+            })}
+            <text x={x + barW / 2} y={H + 14} textAnchor="middle" fill={T.textDim} fontSize="9" fontFamily={T.fontFamily}>{d.label}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
 
-          {/* Weight row */}
-          <div className="grid grid-cols-3 gap-2">
-            <StatCard icon={Scale} value={current?.toFixed(1)} label="Current kg" color="text-blue-400" />
-            <div className="bg-bg-card rounded-xl p-3 text-center">
-              {weekChange != null
-                ? weekChange <= 0
-                  ? <TrendingDown size={14} className="text-emerald-400 mx-auto mb-1" />
-                  : <TrendingUp size={14} className="text-red-400 mx-auto mb-1" />
-                : <ArrowDown size={14} className="text-slate-600 mx-auto mb-1" />}
-              <div className={`text-xl font-bold ${weekChange != null ? (weekChange <= 0 ? "text-emerald-400" : "text-red-400") : "text-slate-600"}`}>
-                {weekChange != null ? (weekChange > 0 ? `+${weekChange}` : weekChange) : "—"}
-              </div>
-              <div className="text-[10px] text-slate-500">kg this week</div>
-            </div>
-            <StatCard icon={Target} value={toTarget} label="kg to goal" color="text-amber-400" />
-          </div>
+export default function AnalyticsPage({ profile, onProfile }) {
+  const [range, setRange] = useState("Month");
+  const [weights, setWeights] = useState(MOCK_WEIGHTS);
+  const [workouts, setWorkouts] = useState([]);
+  const [dashboard, setDashboard] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-          {/* Fitness row */}
-          <div className="bg-bg-card rounded-xl p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-xs font-semibold text-slate-400">Fitness This Week</h3>
-              <span className="text-[10px] text-slate-600">target: 8–9 sessions</span>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="text-center">
-                <div className="text-lg font-bold text-emerald-400">{dashboard?.fitness_this_week.workouts ?? "—"}</div>
-                <div className="text-[10px] text-slate-500">sessions</div>
-              </div>
-              <div className="text-center">
-                <div className="text-lg font-bold text-blue-400">{dashboard?.fitness_this_week.total_minutes ?? "—"}</div>
-                <div className="text-[10px] text-slate-500">minutes</div>
-              </div>
-              <div className="text-center">
-                <div className="text-lg font-bold text-amber-400">{dashboard?.fitness_this_week.total_calories_burned || "—"}</div>
-                <div className="text-[10px] text-slate-500">kcal burned</div>
-              </div>
-            </div>
-            {dashboard?.fitness_this_week.types?.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-2">
-                {dashboard.fitness_this_week.types.map(t => (
-                  <span key={t} className="text-[9px] bg-slate-700 text-slate-400 px-2 py-0.5 rounded-full capitalize">{t}</span>
-                ))}
-              </div>
-            )}
-          </div>
+  useEffect(() => {
+    (async () => {
+      try {
+        const days = range === "Week" ? 7 : range === "Month" ? 30 : 90;
+        const [dash, wData, wkData] = await Promise.all([
+          analyticsAPI.getDashboard(),
+          analyticsAPI.getWeights ? analyticsAPI.getWeights(days) : analyticsAPI.getWeights?.(days),
+          workoutAPI.getAll(days),
+        ]);
+        if (dash) setDashboard(dash);
+        if (wData?.weights?.length) setWeights(wData.weights);
+        if (wkData?.workouts) setWorkouts(wkData.workouts);
+      } catch {
+        // use mock
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [range]);
 
-          {/* Nutrition row */}
-          <div className="bg-bg-card rounded-xl p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-xs font-semibold text-slate-400">Nutrition This Week</h3>
-              <Utensils size={12} className="text-amber-500" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[10px] text-slate-500">Avg Calories</span>
-                  <span className="text-[10px] text-slate-600">target {calorieTarget}</span>
-                </div>
-                <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${avgCal && avgCal > calorieTarget ? "bg-red-500" : "bg-amber-500"}`}
-                    style={{ width: `${Math.min(((avgCal || 0) / calorieTarget) * 100, 100)}%` }}
-                  />
-                </div>
-                <div className={`text-sm font-bold mt-1 ${avgCal && avgCal > calorieTarget ? "text-red-400" : "text-amber-400"}`}>
-                  {avgCal ? `${avgCal} kcal` : "No data"}
-                </div>
-              </div>
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[10px] text-slate-500">Avg Protein</span>
-                  <span className="text-[10px] text-slate-600">target {proteinTarget}g</span>
-                </div>
-                <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${avgPro && avgPro >= proteinTarget ? "bg-emerald-500" : "bg-blue-500"}`}
-                    style={{ width: `${Math.min(((avgPro || 0) / proteinTarget) * 100, 100)}%` }}
-                  />
-                </div>
-                <div className={`text-sm font-bold mt-1 ${avgPro && avgPro >= proteinTarget ? "text-emerald-400" : "text-blue-400"}`}>
-                  {avgPro ? `${avgPro}g` : "No data"}
-                </div>
-              </div>
-            </div>
-            {dashboard?.nutrition_this_week.total_meals_logged != null && (
-              <p className="text-[10px] text-slate-600 mt-2">{dashboard.nutrition_this_week.total_meals_logged} meals logged this week</p>
-            )}
-          </div>
+  const current = dashboard?.weight?.current || weights[weights.length - 1]?.weight_kg;
+  const oldest  = weights[0]?.weight_kg;
+  const delta   = current && oldest ? (current - oldest).toFixed(1) : null;
+  const weekChange = dashboard?.weight?.week_change ?? (delta ? parseFloat(delta) / (weights.length / 7) : null);
+  const goalWeight = profile?.target_weight_kg;
 
-          {/* Budget row */}
-          {budgetSummary && (
-            <div className="bg-bg-card rounded-xl p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-xs font-semibold text-slate-400">Budget This Week</h3>
-                <Wallet size={12} className="text-amber-500" />
+  const displayWeights = range === "Week" ? weights.slice(-7) : range === "Month" ? weights.slice(-30) : weights;
+  const totalSessions = workouts.length;
+  const totalMinutes = workouts.reduce((s, w) => s + (w.duration_minutes || w.duration || 0), 0);
+
+  const avgKcal = dashboard?.nutrition_this_week?.avg_calories || 2140;
+  const avgProtein = dashboard?.nutrition_this_week?.avg_protein || 162;
+  const protTarget = profile?.daily_protein_target || 190;
+  const protAdherence = Math.round((avgProtein / protTarget) * 100);
+
+  return (
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden", background: T.bg }}>
+      <PageHeader title="Analytics" subtitle="Insight across body, fitness, food" profile={profile} onProfile={onProfile} />
+
+      <PageScroll>
+        {/* Range picker */}
+        <div style={{ display: "flex", gap: 8, padding: "0 20px 20px" }}>
+          {RANGES.map(r => (
+            <button key={r} onClick={() => setRange(r)} style={{ padding: "7px 16px", borderRadius: 9999, background: range === r ? T.teal : T.elevated, border: `1px solid ${range === r ? T.teal : T.border}`, color: range === r ? "#0A0A0F" : T.text, fontSize: 12, fontWeight: range === r ? 700 : 500, cursor: "pointer", fontFamily: "inherit" }}>
+              {r}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Body section ── */}
+        <div style={{ padding: "0 20px 8px" }}>
+          <SectionHead title="Body" />
+        </div>
+        <div style={{ margin: "0 20px 16px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.rCard, padding: "16px 18px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+            <div>
+              <div style={{ fontSize: 38, fontWeight: 800, fontFamily: T.fontMono, color: T.text, letterSpacing: -2, lineHeight: 1 }}>
+                {current ? current.toFixed(1) : "—"}
+                <span style={{ fontSize: 16, fontWeight: 500, color: T.textMuted, letterSpacing: 0 }}> kg</span>
               </div>
-              <div className="grid grid-cols-3 gap-3 mb-2">
-                <div className="text-center">
-                  <div className="text-lg font-bold text-amber-400">{formatMoney(budgetSummary.this_week.total)}</div>
-                  <div className="text-[10px] text-slate-500">spent</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-lg font-bold text-slate-400">{formatMoney(budgetSummary.last_week.total)}</div>
-                  <div className="text-[10px] text-slate-500">last week</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-lg font-bold text-slate-300">{formatMoney(budgetSummary.this_month.total)}</div>
-                  <div className="text-[10px] text-slate-500">this month</div>
-                </div>
-              </div>
-              {Object.keys(budgetSummary.this_week.by_category).length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {Object.entries(budgetSummary.this_week.by_category)
-                    .sort((a, b) => b[1] - a[1])
-                    .slice(0, 4)
-                    .map(([cat, amt]) => (
-                      <span key={cat} className="text-[9px] bg-slate-700 text-slate-400 px-2 py-0.5 rounded-full capitalize">
-                        {cat} {formatMoney(amt)}
-                      </span>
-                    ))}
+              {weekChange != null && (
+                <div style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 8, background: (weekChange <= 0 ? T.teal : T.negative) + "22", border: `1px solid ${(weekChange <= 0 ? T.teal : T.negative)}44`, borderRadius: 9999, padding: "4px 10px" }}>
+                  <Icon name={weekChange <= 0 ? "trend-up" : "trend-up"} size={12} color={weekChange <= 0 ? T.teal : T.negative} />
+                  <span style={{ fontSize: 12, fontWeight: 700, color: weekChange <= 0 ? T.teal : T.negative, fontFamily: T.fontMono }}>
+                    {weekChange > 0 ? "+" : ""}{weekChange.toFixed(1)} kg / wk
+                  </span>
                 </div>
               )}
             </div>
-          )}
-        </div>
-      )}
-
-      {/* ── WEIGHT TAB ── */}
-      {tab === "Weight" && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-2">
-            <StatCard icon={Scale} value={current?.toFixed(1)} label="Current kg" color="text-blue-400" />
-            <div className="bg-bg-card rounded-xl p-3 text-center">
-              <div className={`text-xl font-bold ${weekChange != null ? (weekChange <= 0 ? "text-emerald-400" : "text-red-400") : "text-slate-600"}`}>
-                {weekChange != null ? (weekChange > 0 ? `+${weekChange}` : weekChange) : "—"}
+            {goalWeight && (
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 10, color: T.textMuted, letterSpacing: 0.4, textTransform: "uppercase", marginBottom: 3 }}>Goal</div>
+                <div style={{ fontSize: 17, fontWeight: 700, color: T.text, fontFamily: T.fontMono }}>{goalWeight} kg</div>
+                {current && (
+                  <div style={{ fontSize: 11, color: T.textMuted, marginTop: 2 }}>{Math.abs(current - goalWeight).toFixed(1)} kg to go</div>
+                )}
               </div>
-              <div className="text-[10px] text-slate-500">week change</div>
-            </div>
-            <StatCard icon={Target} value={toTarget != null ? `${toTarget}kg` : null} label="to goal" color="text-amber-400" />
-          </div>
-
-          {weightSlice.length > 1 && (
-            <div className="bg-bg-card rounded-xl p-4">
-              <h3 className="text-xs font-semibold text-slate-400 mb-3">Last {weightSlice.length} Days</h3>
-              <Line data={weightLineData} options={{ ...CHART_OPTS, scales: { ...CHART_OPTS.scales, y: { ...CHART_OPTS.scales.y, min: Math.floor(Math.min(...weightSlice.map(w => w.weight_kg)) - 1), max: Math.ceil(Math.max(...weightSlice.map(w => w.weight_kg)) + 1) } } }} />
-            </div>
-          )}
-
-          <div className="bg-bg-card rounded-xl p-4">
-            <h3 className="text-xs font-semibold text-slate-400 mb-2">Log Today's Weight</h3>
-            <div className="flex gap-2">
-              <input
-                type="number" step="0.1"
-                value={weightInput}
-                onChange={e => setWeightInput(e.target.value)}
-                placeholder="Enter weight"
-                className="flex-1 bg-slate-800 rounded-lg px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 focus:outline-none"
-              />
-              <button
-                onClick={handleLogWeight}
-                disabled={loggingWeight || !weightInput}
-                className="px-4 py-2 bg-blue-600/20 text-blue-300 rounded-lg text-sm font-medium disabled:opacity-40"
-              >
-                {loggingWeight ? "…" : "Log"}
-              </button>
-            </div>
-            {weightSaved && <p className="text-xs text-emerald-400 mt-2">✓ Weight logged!</p>}
-          </div>
-
-          {weights.length > 0 && (
-            <div className="bg-bg-card rounded-xl p-4">
-              <h3 className="text-xs font-semibold text-slate-400 mb-2">History</h3>
-              <div className="space-y-1 max-h-60 overflow-y-auto">
-                {[...weights].reverse().map((w, i) => (
-                  <div key={i} className="flex justify-between items-center py-1.5 border-b border-slate-800 last:border-0">
-                    <span className="text-xs text-slate-500">{w.date}</span>
-                    <span className="text-sm font-semibold text-slate-200">{w.weight_kg} kg</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── FITNESS TAB ── */}
-      {tab === "Fitness" && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-2">
-            <StatCard icon={Activity} value={dashboard?.fitness_this_week.workouts ?? "—"} label="sessions" color="text-emerald-400" sub="this week" />
-            <StatCard icon={Flame} value={dashboard?.fitness_this_week.total_calories_burned || "—"} label="kcal burned" color="text-amber-400" sub="this week" />
-            <StatCard icon={Target} value={dashboard?.fitness_this_week.total_minutes ?? "—"} label="minutes" color="text-blue-400" sub="this week" />
-          </div>
-
-          <div className="bg-bg-card rounded-xl p-4">
-            <h3 className="text-xs font-semibold text-slate-400 mb-3">Sessions — Last 14 Days</h3>
-            <Bar data={workoutBarData} options={{ ...CHART_OPTS, scales: { ...CHART_OPTS.scales, y: { ...CHART_OPTS.scales.y, ticks: { ...CHART_OPTS.scales.y.ticks, stepSize: 1 }, min: 0 } } }} />
-          </div>
-
-          {workouts.length > 0 && (
-            <div className="bg-bg-card rounded-xl p-4">
-              <h3 className="text-xs font-semibold text-slate-400 mb-3">Recent Sessions</h3>
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {[...workouts].reverse().slice(0, 15).map((w, i) => (
-                  <div key={i} className="flex items-center justify-between py-1.5 border-b border-slate-800 last:border-0">
-                    <div>
-                      <span className="text-xs font-medium text-slate-200 capitalize">{w.type}</span>
-                      <span className={`ml-2 text-[9px] px-1.5 py-0.5 rounded-full capitalize ${
-                        w.intensity === "high" ? "bg-red-900/40 text-red-400" :
-                        w.intensity === "moderate" ? "bg-amber-900/40 text-amber-400" :
-                        "bg-emerald-900/40 text-emerald-400"
-                      }`}>{w.intensity}</span>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xs text-slate-400">{w.duration}min</div>
-                      <div className="text-[10px] text-slate-600">{w.date}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {dashboard?.fitness_this_week.types?.length > 0 && (
-            <div className="bg-bg-card rounded-xl p-4">
-              <h3 className="text-xs font-semibold text-slate-400 mb-2">Activity Mix This Week</h3>
-              <div className="flex flex-wrap gap-1.5">
-                {dashboard.fitness_this_week.types.map(t => (
-                  <span key={t} className="text-xs bg-emerald-900/30 text-emerald-300 px-3 py-1 rounded-full capitalize">{t}</span>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── NUTRITION TAB ── */}
-      {tab === "Nutrition" && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-2">
-            <div className="bg-bg-card rounded-xl p-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-slate-400">Avg Calories</span>
-                <Flame size={12} className="text-amber-400" />
-              </div>
-              <div className={`text-2xl font-bold ${avgCal && avgCal > calorieTarget ? "text-red-400" : "text-amber-400"}`}>
-                {avgCal ?? "—"}
-              </div>
-              <div className="text-[10px] text-slate-600">target: {calorieTarget} kcal</div>
-              <div className="h-1.5 bg-slate-800 rounded-full mt-2 overflow-hidden">
-                <div
-                  className={`h-full rounded-full ${avgCal && avgCal > calorieTarget ? "bg-red-500" : "bg-amber-500"}`}
-                  style={{ width: `${Math.min(((avgCal || 0) / calorieTarget) * 100, 100)}%` }}
-                />
-              </div>
-            </div>
-            <div className="bg-bg-card rounded-xl p-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-slate-400">Avg Protein</span>
-                <Activity size={12} className="text-emerald-400" />
-              </div>
-              <div className={`text-2xl font-bold ${avgPro && avgPro >= proteinTarget ? "text-emerald-400" : "text-blue-400"}`}>
-                {avgPro ? `${avgPro}g` : "—"}
-              </div>
-              <div className="text-[10px] text-slate-600">target: {proteinTarget}g</div>
-              <div className="h-1.5 bg-slate-800 rounded-full mt-2 overflow-hidden">
-                <div
-                  className={`h-full rounded-full ${avgPro && avgPro >= proteinTarget ? "bg-emerald-500" : "bg-blue-500"}`}
-                  style={{ width: `${Math.min(((avgPro || 0) / proteinTarget) * 100, 100)}%` }}
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-bg-card rounded-xl p-4">
-            <p className="text-xs text-slate-500 text-center py-2">
-              Log meals in the <span className="text-amber-400">Meals</span> tab to see weekly breakdowns here.
-            </p>
-            {dashboard?.nutrition_this_week.total_meals_logged != null && (
-              <p className="text-xs text-slate-600 text-center mt-1">
-                {dashboard.nutrition_this_week.total_meals_logged} meals logged this week
-              </p>
             )}
           </div>
+          <SparklineArea data={displayWeights} color={T.teal} height={80} />
+          {displayWeights.length > 1 && (
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
+              <span style={{ fontSize: 9, color: T.textDim, fontFamily: T.fontMono }}>{displayWeights[0]?.date}</span>
+              <span style={{ fontSize: 9, color: T.textDim, fontFamily: T.fontMono }}>{displayWeights[displayWeights.length - 1]?.date}</span>
+            </div>
+          )}
         </div>
-      )}
 
-      {/* Profile tab */}
-      {tab === "Profile" && (
-        <div className="space-y-4">
-          <div className="bg-bg-card rounded-xl p-4">
-            <h3 className="text-xs font-semibold text-slate-400 mb-3">Personal Profile</h3>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-[10px] text-slate-500 mb-1">Age</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={profileForm.age}
-                  onChange={e => updateProfileField("age", e.target.value)}
-                  className="w-full bg-slate-800 rounded-lg px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 focus:outline-none"
-                  placeholder="e.g. 25"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] text-slate-500 mb-1">Gender</label>
-                <select
-                  value={profileForm.gender}
-                  onChange={e => updateProfileField("gender", e.target.value)}
-                  className="w-full bg-slate-800 rounded-lg px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 focus:outline-none"
-                >
-                  <option value="">Not set</option>
-                  <option value="female">Female</option>
-                  <option value="male">Male</option>
-                  <option value="non_binary">Non-binary</option>
-                  <option value="prefer_not_to_say">Prefer not to say</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-[10px] text-slate-500 mb-1">Current weight (kg)</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={profileForm.current_weight_kg}
-                  onChange={e => updateProfileField("current_weight_kg", e.target.value)}
-                  className="w-full bg-slate-800 rounded-lg px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 focus:outline-none"
-                  placeholder="e.g. 72.5"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] text-slate-500 mb-1">Goal weight (kg)</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={profileForm.target_weight_kg}
-                  onChange={e => updateProfileField("target_weight_kg", e.target.value)}
-                  className="w-full bg-slate-800 rounded-lg px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 focus:outline-none"
-                  placeholder="e.g. 68"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] text-slate-500 mb-1">Height (cm)</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={profileForm.height_cm}
-                  onChange={e => updateProfileField("height_cm", e.target.value)}
-                  className="w-full bg-slate-800 rounded-lg px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 focus:outline-none"
-                  placeholder="e.g. 172"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] text-slate-500 mb-1">Currency</label>
-                <select
-                  value={profileForm.preferred_currency}
-                  onChange={e => updateProfileField("preferred_currency", e.target.value)}
-                  className="w-full bg-slate-800 rounded-lg px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 focus:outline-none"
-                >
-                  <option value="CHF">CHF</option>
-                  <option value="EUR">EUR</option>
-                  <option value="USD">USD</option>
-                  <option value="GBP">GBP</option>
-                  <option value="PKR">PKR</option>
-                  <option value="INR">INR</option>
-                  <option value="AED">AED</option>
-                </select>
-              </div>
-            </div>
+        {/* ── Fitness section ── */}
+        <div style={{ padding: "0 20px 8px" }}>
+          <SectionHead title="Fitness" />
+        </div>
+
+        {/* Heatmap */}
+        <div style={{ margin: "0 20px 12px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.rCard, padding: "16px 18px" }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: T.textMuted, marginBottom: 12 }}>90-day frequency</div>
+          <div style={{ overflowX: "auto", scrollbarWidth: "none" }}>
+            <Heatmap workouts={workouts} />
           </div>
-
-          <div className="bg-bg-card rounded-xl p-4">
-            <h3 className="text-xs font-semibold text-slate-400 mb-3">Daily Targets</h3>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-[10px] text-slate-500 mb-1">Calories</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={profileForm.daily_calorie_target}
-                  onChange={e => updateProfileField("daily_calorie_target", e.target.value)}
-                  className="w-full bg-slate-800 rounded-lg px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 focus:outline-none"
-                  placeholder="e.g. 2100"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] text-slate-500 mb-1">Protein (g)</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={profileForm.daily_protein_target}
-                  onChange={e => updateProfileField("daily_protein_target", e.target.value)}
-                  className="w-full bg-slate-800 rounded-lg px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 focus:outline-none"
-                  placeholder="e.g. 150"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] text-slate-500 mb-1">Carbs (g)</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={profileForm.daily_carb_target}
-                  onChange={e => updateProfileField("daily_carb_target", e.target.value)}
-                  className="w-full bg-slate-800 rounded-lg px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 focus:outline-none"
-                  placeholder="e.g. 180"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] text-slate-500 mb-1">Fat (g)</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={profileForm.daily_fat_target}
-                  onChange={e => updateProfileField("daily_fat_target", e.target.value)}
-                  className="w-full bg-slate-800 rounded-lg px-3 py-2 text-sm border border-slate-700 focus:border-blue-500 focus:outline-none"
-                  placeholder="e.g. 70"
-                />
-              </div>
-            </div>
-            <button
-              onClick={saveProfile}
-              disabled={savingProfile}
-              className="mt-3 w-full py-2.5 bg-blue-600/20 text-blue-300 rounded-lg text-sm font-medium hover:bg-blue-600/30 disabled:opacity-40"
-            >
-              {savingProfile ? "Saving..." : "Save Profile"}
-            </button>
-            {profileSaved && <p className="text-xs text-emerald-400 mt-2">Profile updated.</p>}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10 }}>
+            <span style={{ fontSize: 9, color: T.textDim }}>Less</span>
+            {[T.elevated2, T.teal + "55", T.teal + "99", T.teal].map((c, i) => (
+              <div key={i} style={{ width: 10, height: 10, borderRadius: 2, background: c }} />
+            ))}
+            <span style={{ fontSize: 9, color: T.textDim }}>More</span>
           </div>
         </div>
-      )}
+
+        {/* Fitness mini-stats */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, padding: "0 20px 16px" }}>
+          <MiniStat label="Total sessions" value={String(totalSessions)} />
+          <MiniStat label="Total minutes" value={String(totalMinutes)} />
+        </div>
+
+        {/* PRs */}
+        <div style={{ margin: "0 20px 16px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.rCard, padding: "16px 18px" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: T.textMuted, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 12 }}>Recent PRs</div>
+          {MOCK_PRs.map((pr, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: i < MOCK_PRs.length - 1 ? 12 : 0, marginBottom: i < MOCK_PRs.length - 1 ? 12 : 0, borderBottom: i < MOCK_PRs.length - 1 ? `1px solid ${T.border}` : "none" }}>
+              <div style={{ width: 28, height: 28, borderRadius: 8, background: T.teal + "22", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Icon name="trend-up" size={14} color={T.teal} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{pr.exercise}</div>
+                <div style={{ fontSize: 11, color: T.textMuted, marginTop: 1 }}>{pr.date}</div>
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: T.teal, fontFamily: T.fontMono }}>{pr.value}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── Nutrition section ── */}
+        <div style={{ padding: "0 20px 8px" }}>
+          <SectionHead title="Nutrition" />
+        </div>
+
+        <div style={{ margin: "0 20px 12px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.rCard, padding: "16px 18px" }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: T.textMuted, marginBottom: 16 }}>Daily calories by macro</div>
+          <StackedBarChart data={MOCK_NUTRITION} />
+          <div style={{ display: "flex", gap: 16, marginTop: 14 }}>
+            {[
+              { label: "Protein", color: T.teal   },
+              { label: "Carbs",   color: T.amber  },
+              { label: "Fat",     color: T.violet },
+            ].map(m => (
+              <div key={m.label} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <div style={{ width: 8, height: 8, borderRadius: 2, background: m.color }} />
+                <span style={{ fontSize: 11, color: T.textMuted }}>{m.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Nutrition mini-stats */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, padding: "0 20px 32px" }}>
+          <MiniStat label="Avg kcal" value={`${avgKcal}`} />
+          <MiniStat label="Avg protein" value={`${avgProtein}g`} />
+          <MiniStat label="P adherence" value={`${protAdherence}%`} />
+        </div>
+      </PageScroll>
     </div>
   );
 }

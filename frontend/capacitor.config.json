@@ -3,11 +3,35 @@
   "appName": "Loadout",
   "webDir": "dist",
   "android": {
-    "allowMixedContent": true
+    "allowMixedContent": true,
+    "buildOptions": {
+      "releaseType": "AAB"
+    }
+  },
+  "ios": {
+    "contentInset": "automatic",
+    "allowsLinkPreview": false,
+    "scrollEnabled": false
   },
   "plugins": {
     "SplashScreen": {
-      "launchShowDuration": 0
+      "launchShowDuration": 0,
+      "backgroundColor": "#0A0A0F",
+      "androidScaleType": "CENTER_CROP",
+      "showSpinner": false,
+      "spinnerColor": "#00E5C3"
+    },
+    "StatusBar": {
+      "style": "Dark",
+      "backgroundColor": "#0A0A0F"
+    },
+    "Keyboard": {
+      "resize": "body",
+      "style": "dark",
+      "resizeOnFullScreen": true
     }
+  },
+  "server": {
+    "androidScheme": "https"
   }
 }

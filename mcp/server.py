@@ -555,6 +555,135 @@ async def list_tools() -> list[Tool]:
                 "required": ["user_email"],
             },
         ),
+        Tool(
+            name="delete_meal_log",
+            description="Delete a meal log entry by its ID.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "log_id": {"description": "numeric ID of the meal log entry"},
+                },
+                "required": ["user_email", "log_id"],
+            },
+        ),
+        Tool(
+            name="get_expiring_inventory",
+            description=(
+                "Get inventory items that are expiring within a given number of days (default 3). "
+                "Returns items sorted by expiry_date ascending."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "within_days": {
+                        "description": "numeric, default 3 — items expiring within this many days",
+                        "default": 3,
+                    },
+                },
+                "required": ["user_email"],
+            },
+        ),
+        Tool(
+            name="log_body_weight",
+            description="Log a body weight measurement for the user.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "weight_kg": {"description": "numeric, weight in kg"},
+                    "date": {"type": "string", "description": "YYYY-MM-DD, defaults to today"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["user_email", "weight_kg"],
+            },
+        ),
+        Tool(
+            name="get_body_weight_history",
+            description="Get body weight log entries for the last N days (default 90).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "days": {"description": "numeric, default 90"},
+                },
+                "required": ["user_email"],
+            },
+        ),
+        Tool(
+            name="get_workout_templates",
+            description="Get saved workout templates for a user.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "workout_type": {
+                        "type": "string",
+                        "description": "Optional filter: crossfit, running, cycling, hyrox, strength, other",
+                    },
+                },
+                "required": ["user_email"],
+            },
+        ),
+        Tool(
+            name="add_workout_template",
+            description=(
+                "Create a new workout template. "
+                "exercises is a list of objects with: name, sets, reps, rest_seconds, notes."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "name": {"type": "string"},
+                    "workout_type": {"type": "string"},
+                    "estimated_duration": {"description": "numeric minutes"},
+                    "description": {"type": "string"},
+                    "exercises": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": '[{"name": "Pull-ups", "sets": 4, "reps": 8, "rest_seconds": 90}]',
+                    },
+                },
+                "required": ["user_email", "name", "workout_type", "exercises"],
+            },
+        ),
+        Tool(
+            name="get_analytics_summary",
+            description=(
+                "Get a comprehensive analytics summary for a user: "
+                "body weight trend, workout frequency heatmap (last 90 days), "
+                "personal records (PRs), and macro adherence stats."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "days": {"description": "numeric, lookback window, default 90"},
+                },
+                "required": ["user_email"],
+            },
+        ),
+        Tool(
+            name="update_supplements",
+            description=(
+                "Replace the user's supplement list. "
+                "supplements is an object with keys: morning, pre_workout, post_workout, before_bed — "
+                "each a list of supplement name strings."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_email": {"type": "string"},
+                    "supplements": {
+                        "type": "object",
+                        "description": '{"morning": ["Vitamin D", "Omega-3"], "post_workout": ["Whey Protein", "Creatine"]}',
+                    },
+                },
+                "required": ["user_email", "supplements"],
+            },
+        ),
     ]
 
 
@@ -642,6 +771,30 @@ async def _dispatch(name: str, args: dict, conn: asyncpg.Connection) -> Any:
 
     if name == "get_budget_summary":
         return await _get_budget_summary(conn, user_id, args)
+
+    if name == "delete_meal_log":
+        return await _delete_meal_log(conn, user_id, args)
+
+    if name == "get_expiring_inventory":
+        return await _get_expiring_inventory(conn, user_id, args)
+
+    if name == "log_body_weight":
+        return await _log_body_weight(conn, user_id, args)
+
+    if name == "get_body_weight_history":
+        return await _get_body_weight_history(conn, user_id, args)
+
+    if name == "get_workout_templates":
+        return await _get_workout_templates(conn, user_id, args)
+
+    if name == "add_workout_template":
+        return await _add_workout_template(conn, user_id, args)
+
+    if name == "get_analytics_summary":
+        return await _get_analytics_summary(conn, user_id, args)
+
+    if name == "update_supplements":
+        return await _update_supplements(conn, user_id, args)
 
     raise ValueError(f"Unknown tool: {name}")
 
@@ -1284,6 +1437,189 @@ async def _delete_inventory_item(conn: asyncpg.Connection, user_id: int, args: d
     if result == "DELETE 0":
         raise ValueError(f"Inventory item {_i(args['item_id'])} not found for this user.")
     return {"status": "deleted", "item_id": args["item_id"]}
+
+
+async def _delete_meal_log(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    log_id = _i(args["log_id"])
+    result = await conn.execute(
+        "DELETE FROM meal_logs WHERE id = $1 AND user_id = $2",
+        log_id, user_id,
+    )
+    if result == "DELETE 0":
+        raise ValueError(f"Meal log {log_id} not found for this user.")
+    return {"status": "deleted", "log_id": log_id}
+
+
+async def _get_expiring_inventory(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    from datetime import timedelta
+    within = _i(args.get("within_days", 3))
+    today = date_cls.today()
+    cutoff = today + timedelta(days=within)
+    rows = await conn.fetch(
+        """
+        SELECT id, name, quantity, unit, category, expiry_date,
+               (expiry_date - CURRENT_DATE) AS days_left
+        FROM inventory_items
+        WHERE user_id = $1 AND expiry_date IS NOT NULL AND expiry_date <= $2
+        ORDER BY expiry_date ASC
+        """,
+        user_id, cutoff,
+    )
+    return {"items": [_serialize(r) for r in rows], "count": len(rows), "within_days": within}
+
+
+async def _log_body_weight(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    log_date = date_cls.fromisoformat(args["date"]) if args.get("date") else date_cls.today()
+    weight = _f(args["weight_kg"])
+    # Upsert: one entry per day per user
+    row = await conn.fetchrow(
+        """
+        INSERT INTO weight_logs (user_id, date, weight_kg, notes)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (user_id, date) DO UPDATE
+            SET weight_kg = EXCLUDED.weight_kg, notes = EXCLUDED.notes
+        RETURNING id, date, weight_kg
+        """,
+        user_id, log_date, weight, args.get("notes"),
+    )
+    # Also update current_weight_kg in profile
+    await conn.execute(
+        "UPDATE users SET current_weight_kg = $1, updated_at = now() WHERE id = $2",
+        weight, user_id,
+    )
+    return {"status": "logged", "entry": _serialize(row)}
+
+
+async def _get_body_weight_history(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    from datetime import timedelta
+    days = _i(args.get("days", 90))
+    start = date_cls.today() - timedelta(days=days)
+    rows = await conn.fetch(
+        """
+        SELECT date, weight_kg, notes
+        FROM weight_logs
+        WHERE user_id = $1 AND date >= $2
+        ORDER BY date ASC
+        """,
+        user_id, start,
+    )
+    data = [_serialize(r) for r in rows]
+    weights = [r["weight_kg"] for r in data if r["weight_kg"]]
+    return {
+        "entries": data,
+        "count": len(data),
+        "min_kg": min(weights) if weights else None,
+        "max_kg": max(weights) if weights else None,
+        "delta_kg": round(weights[-1] - weights[0], 2) if len(weights) >= 2 else None,
+    }
+
+
+async def _get_workout_templates(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    workout_type = args.get("workout_type")
+    if workout_type:
+        rows = await conn.fetch(
+            """
+            SELECT id, name, workout_type, estimated_duration, description, exercises
+            FROM workout_templates
+            WHERE user_id = $1 AND workout_type = $2
+            ORDER BY name
+            """,
+            user_id, workout_type.lower(),
+        )
+    else:
+        rows = await conn.fetch(
+            """
+            SELECT id, name, workout_type, estimated_duration, description, exercises
+            FROM workout_templates
+            WHERE user_id = $1
+            ORDER BY workout_type, name
+            """,
+            user_id,
+        )
+    return {"templates": [_serialize(r) for r in rows], "count": len(rows)}
+
+
+async def _add_workout_template(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    row = await conn.fetchrow(
+        """
+        INSERT INTO workout_templates
+            (user_id, name, workout_type, estimated_duration, description, exercises)
+        VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+        RETURNING id, name, workout_type, estimated_duration
+        """,
+        user_id,
+        args["name"],
+        args["workout_type"].lower(),
+        _i(args.get("estimated_duration")),
+        args.get("description"),
+        json.dumps(args.get("exercises", [])),
+    )
+    return {"status": "created", "template": _serialize(row)}
+
+
+async def _get_analytics_summary(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    from datetime import timedelta
+    days = _i(args.get("days", 90))
+    start = date_cls.today() - timedelta(days=days)
+
+    # Body weight trend
+    weight_rows = await conn.fetch(
+        "SELECT date, weight_kg FROM weight_logs WHERE user_id=$1 AND date>=$2 ORDER BY date",
+        user_id, start,
+    )
+
+    # Workout frequency (dates)
+    workout_rows = await conn.fetch(
+        "SELECT date, workout_type, duration_minutes, calories_burned_est FROM workout_logs WHERE user_id=$1 AND date>=$2 ORDER BY date",
+        user_id, start,
+    )
+
+    # Macro adherence (last 7 days)
+    week_start = date_cls.today() - timedelta(days=7)
+    macro_rows = await conn.fetch(
+        """
+        SELECT date,
+               SUM(calories) AS cal, SUM(protein_g) AS prot,
+               SUM(carbs_g) AS carbs, SUM(fat_g) AS fat
+        FROM meal_logs WHERE user_id=$1 AND date>=$2
+        GROUP BY date ORDER BY date
+        """,
+        user_id, week_start,
+    )
+
+    targets = await conn.fetchrow(
+        "SELECT daily_calorie_target, daily_protein_target FROM users WHERE id=$1",
+        user_id,
+    )
+
+    workout_count = len(workout_rows)
+    total_minutes = sum(r["duration_minutes"] or 0 for r in workout_rows)
+    by_type: dict = {}
+    for r in workout_rows:
+        t = r["workout_type"]
+        by_type[t] = by_type.get(t, 0) + 1
+
+    return {
+        "body_weight": [_serialize(r) for r in weight_rows],
+        "workouts": {
+            "count": workout_count,
+            "total_minutes": total_minutes,
+            "by_type": by_type,
+            "dates": [str(r["date"]) for r in workout_rows],
+        },
+        "macro_adherence": [_serialize(r) for r in macro_rows],
+        "targets": _serialize(targets),
+        "period_days": days,
+    }
+
+
+async def _update_supplements(conn: asyncpg.Connection, user_id: int, args: dict) -> dict:
+    supplements = args["supplements"]
+    await conn.execute(
+        "UPDATE users SET supplements = $1::jsonb, updated_at = now() WHERE id = $2",
+        json.dumps(supplements), user_id,
+    )
+    return {"status": "updated", "supplements": supplements}
 
 
 # ---- Starlette ASGI app with SSE transport ----

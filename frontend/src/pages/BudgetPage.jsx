@@ -1,262 +1,426 @@
-import { useState, useEffect } from "react";
-import { PlusCircle, Trash2, TrendingUp, TrendingDown, Wallet } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { T } from "../design/tokens";
+import { Icon } from "../design/icons";
+import { Card, Fab, PageHeader, PageScroll, SectionHead, EmptyState, LoadingDots } from "../design/components";
 import { budgetAPI } from "../utils/api";
+import CategoryDetailPage from "./details/CategoryDetailPage";
 
-const CATEGORIES = [
-  { id: "food", label: "Food", emoji: "🍔", color: "text-amber-400", bg: "bg-amber-950/30", bar: "bg-amber-500" },
-  { id: "transport", label: "Transport", emoji: "🚌", color: "text-blue-400", bg: "bg-blue-950/30", bar: "bg-blue-500" },
-  { id: "uni", label: "Uni", emoji: "🎓", color: "text-purple-400", bg: "bg-purple-950/30", bar: "bg-purple-500" },
-  { id: "health", label: "Health", emoji: "💊", color: "text-emerald-400", bg: "bg-emerald-950/30", bar: "bg-emerald-500" },
-  { id: "entertainment", label: "Fun", emoji: "🎮", color: "text-pink-400", bg: "bg-pink-950/30", bar: "bg-pink-500" },
-  { id: "shopping", label: "Shopping", emoji: "🛍️", color: "text-orange-400", bg: "bg-orange-950/30", bar: "bg-orange-500" },
-  { id: "other", label: "Other", emoji: "📦", color: "text-slate-400", bg: "bg-slate-800/50", bar: "bg-slate-500" },
+const CATS = [
+  { id: "food",      label: "Food",      color: T.amber,   icon: "meal"    },
+  { id: "rent",      label: "Rent",      color: T.violet,  icon: "location" },
+  { id: "transport", label: "Transport", color: T.teal,    icon: "bike"    },
+  { id: "fitness",   label: "Fitness",   color: "#5C8FFC", icon: "dumbbell" },
+  { id: "fun",       label: "Fun",       color: "#FC5C9E", icon: "heart"   },
+  { id: "other",     label: "Other",     color: "#FC8B5C", icon: "pill"    },
 ];
 
-const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const CAT_BUDGETS = { food: 400, rent: 1200, transport: 150, fitness: 80, fun: 200, other: 150 };
 
-function getCatMeta(id) {
-  return CATEGORIES.find(c => c.id === id) || CATEGORIES[6];
+function getCat(id) { return CATS.find(c => c.id === id) || CATS[5]; }
+
+const MOCK_SUMMARY = {
+  income: 3200,
+  expenses: 2180,
+  net: 1020,
+  by_category: { food: 340, rent: 1200, transport: 95, fitness: 60, fun: 120, other: 65 },
+  sparkline: [1100, 980, 1200, 1050, 1180, 1020],
+  week_bars: [42, 85, 65, 120, 95, 180, 110],
+  week_avg: 99.6,
+};
+
+const MOCK_ENTRIES = [
+  { id: "e1", date: "2025-04-24", category: "food",      amount: 18.50, description: "Lidl groceries" },
+  { id: "e2", date: "2025-04-24", category: "transport", amount: 4.20,  description: "Bus ticket" },
+  { id: "e3", date: "2025-04-23", category: "fitness",   amount: 12.00, description: "Gym session" },
+  { id: "e4", date: "2025-04-23", category: "food",      amount: 9.80,  description: "Coffee + lunch" },
+  { id: "e5", date: "2025-04-22", category: "fun",       amount: 35.00, description: "Cinema + drinks" },
+];
+
+function groupByDate(entries) {
+  const groups = {};
+  for (const e of entries) {
+    if (!groups[e.date]) groups[e.date] = [];
+    groups[e.date].push(e);
+  }
+  return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
 }
 
-function getWeekDates() {
-  const today = new Date();
-  const day = today.getDay(); // 0=Sun
-  const monday = new Date(today);
-  monday.setDate(today.getDate() - ((day + 6) % 7));
-  return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    return d.toISOString().split("T")[0];
-  });
-}
+function DonutChart({ data, active, onSelect }) {
+  const total = Object.values(data).reduce((s, v) => s + v, 0) || 1;
+  const size = 120;
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = 44;
+  const gap = 0.04;
 
-export default function BudgetPage() {
-  const [summary, setSummary] = useState(null);
-  const [entries, setEntries] = useState([]);
-  const [period, setPeriod] = useState("week");
+  let offset = -Math.PI / 2;
+  const slices = CATS.map((cat) => {
+    const val = data[cat.id] || 0;
+    const pct = val / total;
+    const angle = pct * 2 * Math.PI - gap;
+    const slice = { cat, val, pct, startAngle: offset, endAngle: offset + angle };
+    offset += pct * 2 * Math.PI;
+    return slice;
+  }).filter(s => s.val > 0);
 
-  // Form state
-  const [amount, setAmount] = useState("");
-  const [category, setCategory] = useState("food");
-  const [description, setDescription] = useState("");
-  const [adding, setAdding] = useState(false);
-
-  useEffect(() => { loadData(); }, [period]);
-
-  async function loadData() {
-    try {
-      const [s, e] = await Promise.all([budgetAPI.getSummary(), budgetAPI.getAll(period)]);
-      setSummary(s);
-      setEntries(e.entries);
-    } catch {/* silently fail */}
+  function arcPath(start, end) {
+    if (Math.abs(end - start) < 0.001) return "";
+    const x1 = cx + r * Math.cos(start);
+    const y1 = cy + r * Math.sin(start);
+    const x2 = cx + r * Math.cos(end);
+    const y2 = cy + r * Math.sin(end);
+    const large = end - start > Math.PI ? 1 : 0;
+    return `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`;
   }
-
-  async function handleAdd(e) {
-    e.preventDefault();
-    if (!amount || parseFloat(amount) <= 0) return;
-    setAdding(true);
-    try {
-      await budgetAPI.add({ amount: parseFloat(amount), category, description: description || null });
-      setAmount("");
-      setDescription("");
-      await loadData();
-    } catch (err) {
-      alert(err.message);
-    }
-    setAdding(false);
-  }
-
-  async function handleDelete(id) {
-    try {
-      await budgetAPI.delete(id);
-      setEntries(es => es.filter(e => e.id !== id));
-      await loadData();
-    } catch {/* ignore */}
-  }
-
-  const weekDates = getWeekDates();
-  const maxDaily = summary ? Math.max(...weekDates.map(d => summary.this_week.daily[d] || 0), 1) : 1;
-  const weekTotal = summary?.this_week.total || 0;
-  const lastWeekTotal = summary?.last_week.total || 0;
-  const weekChange = weekTotal - lastWeekTotal;
-  const byCategory = summary?.this_week.by_category || {};
-  const maxCat = Math.max(...Object.values(byCategory), 1);
 
   return (
-    <div className="px-4 pt-4 pb-6 max-w-lg mx-auto">
-      <h1 className="text-xl font-bold bg-gradient-to-r from-amber-400 to-orange-400 bg-clip-text text-transparent mb-4">
-        Budget
-      </h1>
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke={T.elevated2} strokeWidth={14} />
+      {slices.map(s => (
+        <path
+          key={s.cat.id}
+          d={arcPath(s.startAngle, s.endAngle)}
+          fill="none"
+          stroke={s.cat.color}
+          strokeWidth={active === s.cat.id ? 18 : 14}
+          strokeLinecap="round"
+          style={{ cursor: "pointer", opacity: active && active !== s.cat.id ? 0.35 : 1, transition: "all 0.2s" }}
+          onClick={() => onSelect(active === s.cat.id ? null : s.cat.id)}
+        />
+      ))}
+      {active && (() => {
+        const s = slices.find(sl => sl.cat.id === active);
+        const cat = getCat(active);
+        return s ? (
+          <>
+            <text x={cx} y={cy - 5} textAnchor="middle" fill={cat.color} fontSize="13" fontWeight="700" fontFamily={T.fontMono}>
+              CHF {(s.val).toFixed(0)}
+            </text>
+            <text x={cx} y={cy + 10} textAnchor="middle" fill={T.textMuted} fontSize="9" fontFamily={T.fontFamily}>
+              {(s.pct * 100).toFixed(0)}%
+            </text>
+          </>
+        ) : null;
+      })()}
+    </svg>
+  );
+}
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-2 mb-4">
-        <div className="bg-bg-card rounded-xl p-3 text-center">
-          <Wallet size={14} className="text-amber-400 mx-auto mb-1" />
-          <div className="text-lg font-bold text-amber-400">CHF {weekTotal.toFixed(0)}</div>
-          <div className="text-[10px] text-slate-500">this week</div>
-        </div>
-        <div className="bg-bg-card rounded-xl p-3 text-center">
-          {weekChange <= 0
-            ? <TrendingDown size={14} className="text-emerald-400 mx-auto mb-1" />
-            : <TrendingUp size={14} className="text-red-400 mx-auto mb-1" />}
-          <div className={`text-lg font-bold ${weekChange <= 0 ? "text-emerald-400" : "text-red-400"}`}>
-            {weekChange >= 0 ? "+" : ""}{weekChange.toFixed(0)}
-          </div>
-          <div className="text-[10px] text-slate-500">vs last week</div>
-        </div>
-        <div className="bg-bg-card rounded-xl p-3 text-center">
-          <div className="text-lg font-bold text-slate-300">CHF {(summary?.this_month.total || 0).toFixed(0)}</div>
-          <div className="text-[10px] text-slate-500">this month</div>
-        </div>
-      </div>
+function SparklineSVG({ data }) {
+  if (!data || data.length < 2) return null;
+  const w = 200, h = 48;
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1;
+  const pts = data.map((v, i) => [
+    (i / (data.length - 1)) * w,
+    h - ((v - min) / range) * (h - 8) - 4,
+  ]);
+  const path = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p[0]} ${p[1]}`).join(" ");
+  const fill = `${path} L ${w} ${h} L 0 ${h} Z`;
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ overflow: "visible" }}>
+      <defs>
+        <linearGradient id="spark-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={T.teal} stopOpacity="0.25" />
+          <stop offset="100%" stopColor={T.teal} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={fill} fill="url(#spark-fill)" />
+      <path d={path} fill="none" stroke={T.teal} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
-      {/* Add expense */}
-      <div className="bg-bg-card rounded-xl p-4 mb-4">
-        <h3 className="text-sm font-semibold text-slate-300 mb-3">Add Expense</h3>
-        <form onSubmit={handleAdd} className="space-y-3">
-          {/* Category grid */}
-          <div className="grid grid-cols-4 gap-1.5">
-            {CATEGORIES.map(c => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => setCategory(c.id)}
-                className={`flex flex-col items-center py-2 rounded-lg text-[10px] transition-all ${
-                  category === c.id
-                    ? `${c.bg} ${c.color} ring-1 ring-current`
-                    : "bg-slate-800/60 text-slate-500"
-                }`}
-              >
-                <span className="text-base mb-0.5">{c.emoji}</span>
-                {c.label}
-              </button>
-            ))}
-          </div>
+function WeekBarsChart({ bars, avg }) {
+  const DAYS = ["M", "T", "W", "T", "F", "S", "S"];
+  const max = Math.max(...bars, 1);
+  const h = 72;
+  const w = 280;
+  const barW = 24;
+  const gap = (w - DAYS.length * barW) / (DAYS.length - 1);
+  const avgY = h - (avg / max) * h;
 
-          <div className="flex gap-2">
-            <div className="flex-1">
-              <input
-                type="number"
-                step="0.05"
-                min="0"
-                value={amount}
-                onChange={e => setAmount(e.target.value)}
-                placeholder="CHF amount"
-                className="w-full bg-slate-800/60 rounded-xl px-3 py-2.5 text-sm border border-slate-700 focus:border-amber-500 focus:outline-none text-white"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={adding || !amount}
-              className="px-4 py-2.5 bg-amber-600/20 text-amber-300 rounded-xl text-sm font-medium hover:bg-amber-600/30 transition-colors disabled:opacity-40 flex items-center gap-1"
-            >
-              <PlusCircle size={14} />
-              Add
-            </button>
-          </div>
-
-          <input
-            type="text"
-            value={description}
-            onChange={e => setDescription(e.target.value)}
-            placeholder="Description (optional)"
-            className="w-full bg-slate-800/60 rounded-xl px-3 py-2 text-sm border border-slate-700 focus:border-amber-500 focus:outline-none text-white placeholder-slate-600"
-          />
-        </form>
-      </div>
-
-      {/* Daily bar chart */}
-      {summary && (
-        <div className="bg-bg-card rounded-xl p-4 mb-4">
-          <h3 className="text-xs font-semibold text-slate-400 mb-3">This Week (CHF)</h3>
-          <div className="flex items-end gap-1 h-20">
-            {weekDates.map((d, i) => {
-              const val = summary.this_week.daily[d] || 0;
-              const heightPct = (val / maxDaily) * 80 + (val > 0 ? 10 : 0);
-              return (
-                <div key={d} className="flex-1 flex flex-col items-center gap-1">
-                  {val > 0 && <span className="text-[8px] text-slate-500">{val.toFixed(0)}</span>}
-                  <div
-                    className="w-full rounded-t bg-gradient-to-t from-amber-600 to-amber-400 transition-all"
-                    style={{ height: `${heightPct}%`, minHeight: val > 0 ? "4px" : "2px" }}
-                  />
-                  <span className="text-[8px] text-slate-600">{DAY_LABELS[i]}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+  return (
+    <svg width={w} height={h + 20} viewBox={`0 0 ${w} ${h + 20}`}>
+      <defs>
+        <linearGradient id="bar-grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={T.teal} stopOpacity="0.9" />
+          <stop offset="100%" stopColor={T.teal} stopOpacity="0.3" />
+        </linearGradient>
+      </defs>
+      {bars.map((v, i) => {
+        const bh = Math.max((v / max) * h, 2);
+        const x = i * (barW + gap);
+        return (
+          <g key={i}>
+            <rect x={x} y={h - bh} width={barW} height={bh} rx={4} fill="url(#bar-grad)" />
+            <text x={x + barW / 2} y={h + 14} textAnchor="middle" fill={T.textDim} fontSize="9" fontFamily={T.fontFamily}>{DAYS[i]}</text>
+          </g>
+        );
+      })}
+      {avg > 0 && (
+        <>
+          <line x1={0} y1={avgY} x2={w} y2={avgY} stroke={T.amber} strokeWidth={1} strokeDasharray="4 3" />
+          <text x={w - 2} y={avgY - 3} textAnchor="end" fill={T.amber} fontSize="8" fontFamily={T.fontMono}>avg</text>
+        </>
       )}
+    </svg>
+  );
+}
 
-      {/* Category breakdown */}
-      {Object.keys(byCategory).length > 0 && (
-        <div className="bg-bg-card rounded-xl p-4 mb-4">
-          <h3 className="text-xs font-semibold text-slate-400 mb-3">By Category</h3>
-          <div className="space-y-2">
-            {Object.entries(byCategory).sort((a, b) => b[1] - a[1]).map(([cat, amt]) => {
-              const meta = getCatMeta(cat);
-              return (
-                <div key={cat} className="flex items-center gap-2">
-                  <span className="text-sm">{meta.emoji}</span>
-                  <div className="flex-1">
-                    <div className="flex justify-between items-center mb-0.5">
-                      <span className="text-xs text-slate-400 capitalize">{cat}</span>
-                      <span className={`text-xs font-semibold ${meta.color}`}>CHF {amt.toFixed(2)}</span>
-                    </div>
-                    <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${meta.bar} transition-all`}
-                        style={{ width: `${(amt / maxCat) * 100}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+function AddExpenseSheet({ onClose, onAdded }) {
+  const [amount, setAmount] = useState("");
+  const [cat, setCat] = useState("food");
+  const [desc, setDesc] = useState("");
+  const [saving, setSaving] = useState(false);
 
-      {/* Period toggle + transactions */}
-      <div className="flex gap-2 mb-3">
-        {["week", "month", "30"].map(p => (
-          <button
-            key={p}
-            onClick={() => setPeriod(p)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-              period === p ? "bg-slate-700 text-slate-200" : "bg-bg-card text-slate-500"
-            }`}
-          >
-            {p === "week" ? "This week" : p === "month" ? "This month" : "30 days"}
+  async function handleSave() {
+    if (!amount || parseFloat(amount) <= 0) return;
+    setSaving(true);
+    try {
+      await budgetAPI.add({ amount: parseFloat(amount), category: cat, description: desc || null });
+      onAdded();
+      onClose();
+    } catch (e) {
+      console.error(e);
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div style={{ position: "absolute", inset: 0, zIndex: 40, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)" }} />
+      <div style={{ position: "relative", background: T.surface, borderRadius: "20px 20px 0 0", padding: "20px 20px 36px", border: `1px solid ${T.border}` }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>Add Expense</div>
+          <button onClick={onClose} style={{ background: T.elevated, border: "none", borderRadius: 9999, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: T.textMuted }}>
+            <Icon name="x" size={14} />
           </button>
-        ))}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 16 }}>
+          {CATS.map(c => (
+            <button key={c.id} onClick={() => setCat(c.id)} style={{ padding: "10px 6px", borderRadius: 10, background: cat === c.id ? c.color + "22" : T.elevated, border: `1px solid ${cat === c.id ? c.color + "55" : T.border}`, color: cat === c.id ? c.color : T.textMuted, fontSize: 11, fontWeight: cat === c.id ? 700 : 500, cursor: "pointer", fontFamily: "inherit", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+              <Icon name={c.icon} size={16} color={cat === c.id ? c.color : T.textDim} />
+              {c.label}
+            </button>
+          ))}
+        </div>
+        <input
+          type="number"
+          step="0.05"
+          min="0"
+          value={amount}
+          onChange={e => setAmount(e.target.value)}
+          placeholder="CHF 0.00"
+          style={{ width: "100%", background: T.elevated, border: `1px solid ${T.border}`, borderRadius: T.rInput, padding: "12px 14px", fontSize: 20, fontWeight: 700, color: T.text, fontFamily: T.fontMono, outline: "none", marginBottom: 10, boxSizing: "border-box" }}
+        />
+        <input
+          type="text"
+          value={desc}
+          onChange={e => setDesc(e.target.value)}
+          placeholder="Description (optional)"
+          style={{ width: "100%", background: T.elevated, border: `1px solid ${T.border}`, borderRadius: T.rInput, padding: "10px 14px", fontSize: 13, color: T.text, fontFamily: "inherit", outline: "none", marginBottom: 16, boxSizing: "border-box" }}
+        />
+        <button onClick={handleSave} disabled={saving || !amount} style={{ width: "100%", padding: "13px 0", background: T.amber, color: "#0A0A0F", border: "none", borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: saving || !amount ? "not-allowed" : "pointer", opacity: saving || !amount ? 0.5 : 1, fontFamily: "inherit" }}>
+          {saving ? "Saving…" : "Add Expense"}
+        </button>
       </div>
+    </div>
+  );
+}
 
-      <div className="space-y-2">
-        {entries.length === 0 ? (
-          <p className="text-center text-xs text-slate-600 py-6">No expenses logged yet.</p>
-        ) : (
-          entries.map(e => {
-            const meta = getCatMeta(e.category);
-            return (
-              <div key={e.id} className={`flex items-center gap-3 p-3 rounded-xl ${meta.bg}`}>
-                <span className="text-lg">{meta.emoji}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold text-slate-200">CHF {e.amount.toFixed(2)}</span>
-                    <span className="text-[10px] text-slate-600">{e.date}</span>
+export default function BudgetPage({ profile, onProfile }) {
+  const [summary, setSummary] = useState(MOCK_SUMMARY);
+  const [entries, setEntries] = useState(MOCK_ENTRIES);
+  const [activeDonut, setActiveDonut] = useState(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [selectedCategory, setSelectedCategory] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [s, e] = await Promise.all([budgetAPI.getSummary(), budgetAPI.getAll("month")]);
+        if (s) setSummary(s);
+        if (e?.entries?.length) setEntries(e.entries);
+      } catch {
+        // use mock
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  async function reload() {
+    try {
+      const [s, e] = await Promise.all([budgetAPI.getSummary(), budgetAPI.getAll("month")]);
+      if (s) setSummary(s);
+      if (e?.entries?.length) setEntries(e.entries);
+    } catch {}
+  }
+
+  const net = (summary?.income || 0) - (summary?.expenses || 0);
+  const catData = summary?.by_category || MOCK_SUMMARY.by_category;
+  const totalExp = Object.values(catData).reduce((s, v) => s + v, 0) || 1;
+  const grouped = groupByDate(entries);
+
+  function fmtDate(d) {
+    const dt = new Date(d + "T00:00:00");
+    const today = new Date(); today.setHours(0,0,0,0);
+    const diff = Math.round((today - dt) / 86400000);
+    if (diff === 0) return "Today";
+    if (diff === 1) return "Yesterday";
+    return dt.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+  }
+
+  return (
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden", background: T.bg, position: "relative" }}>
+      <PageHeader
+        title="Budget"
+        subtitle="April · 20 days remain"
+        profile={profile}
+        onProfile={onProfile}
+        trailing={
+          <button style={{ width: 32, height: 32, borderRadius: 9999, background: T.elevated, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: T.textMuted }}>
+            <Icon name="settings" size={16} />
+          </button>
+        }
+      />
+
+      <PageScroll>
+        {/* 2-col stat chips */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, padding: "0 20px 16px" }}>
+          {[
+            { label: "Income", value: `CHF ${(summary?.income || 0).toFixed(0)}`, color: T.teal, icon: "trend-up" },
+            { label: "Expenses", value: `CHF ${(summary?.expenses || 0).toFixed(0)}`, color: T.negative, icon: "budget" },
+          ].map(s => (
+            <div key={s.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.rCard, padding: "14px 16px", display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 34, height: 34, borderRadius: 10, background: s.color + "22", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Icon name={s.icon} size={17} color={s.color} />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: T.textMuted, fontWeight: 600, letterSpacing: 0.4, textTransform: "uppercase" }}>{s.label}</div>
+                <div style={{ fontSize: 17, fontWeight: 700, color: T.text, fontFamily: T.fontMono, marginTop: 1 }}>{s.value}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Net balance card with sparkline */}
+        <div style={{ margin: "0 20px 16px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.rCard, padding: "16px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontSize: 10, color: T.textMuted, fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 4 }}>Net Balance</div>
+            <div style={{ fontSize: 28, fontWeight: 800, fontFamily: T.fontMono, color: net >= 0 ? T.teal : T.negative, letterSpacing: -1 }}>
+              CHF {net >= 0 ? "+" : ""}{net.toFixed(0)}
+            </div>
+            <div style={{ fontSize: 11, color: T.textMuted, marginTop: 3 }}>this month</div>
+          </div>
+          <SparklineSVG data={summary?.sparkline || MOCK_SUMMARY.sparkline} />
+        </div>
+
+        {/* Donut + legend */}
+        <div style={{ margin: "0 20px 16px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.rCard, padding: "16px 18px" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: T.textMuted, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 14 }}>Spending by Category</div>
+          <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+            <DonutChart data={catData} active={activeDonut} onSelect={setActiveDonut} />
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+              {CATS.map(cat => {
+                const val = catData[cat.id] || 0;
+                const pct = ((val / totalExp) * 100).toFixed(0);
+                const isActive = activeDonut === cat.id;
+                return (
+                  <div key={cat.id} onClick={() => setActiveDonut(activeDonut === cat.id ? null : cat.id)} style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", opacity: activeDonut && !isActive ? 0.4 : 1, transition: "opacity 0.15s" }}>
+                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: cat.color, flexShrink: 0 }} />
+                    <div style={{ flex: 1, fontSize: 11, color: T.text, fontWeight: isActive ? 700 : 500 }}>{cat.label}</div>
+                    <div style={{ fontSize: 10, color: T.textMuted, fontFamily: T.fontMono }}>{pct}%</div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: cat.color, fontFamily: T.fontMono, minWidth: 44, textAlign: "right" }}>{val.toFixed(0)}</div>
                   </div>
-                  {e.description && <p className="text-xs text-slate-500 truncate">{e.description}</p>}
-                  <span className={`text-[10px] capitalize ${meta.color}`}>{e.category}</span>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Category progress tiles */}
+        <div style={{ padding: "0 20px 16px" }}>
+          <SectionHead title="Category budgets" />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            {CATS.map(cat => {
+              const spent = catData[cat.id] || 0;
+              const budget = CAT_BUDGETS[cat.id] || 200;
+              const pct = Math.min(spent / budget, 1);
+              const over = spent > budget;
+              return (
+                <div key={cat.id} onClick={() => setSelectedCategory({ ...cat, spent, budget, txCount: Math.round(spent / 40) + 2 })} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "12px 13px", cursor: "pointer" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: cat.color }} />
+                    <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{cat.label}</span>
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: over ? T.negative : T.text, fontFamily: T.fontMono, marginBottom: 2 }}>
+                    CHF {spent.toFixed(0)} <span style={{ fontSize: 10, color: T.textMuted, fontWeight: 400 }}>/ {budget}</span>
+                  </div>
+                  <div style={{ height: 4, borderRadius: 9999, background: T.elevated2, overflow: "hidden", marginTop: 6 }}>
+                    <div style={{ width: `${pct * 100}%`, height: "100%", background: over ? T.negative : cat.color, borderRadius: 9999 }} />
+                  </div>
                 </div>
-                <button onClick={() => handleDelete(e.id)} className="p-1 text-slate-700 hover:text-red-400 transition-colors">
-                  <Trash2 size={12} />
-                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Week bar chart */}
+        <div style={{ margin: "0 20px 16px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.rCard, padding: "16px 18px" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: T.textMuted, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 14 }}>This Week</div>
+          <WeekBarsChart bars={summary?.week_bars || MOCK_SUMMARY.week_bars} avg={summary?.week_avg || MOCK_SUMMARY.week_avg} />
+        </div>
+
+        {/* Transaction history */}
+        <div style={{ padding: "0 20px 24px" }}>
+          <SectionHead title="Transactions" />
+          {loading && <LoadingDots />}
+          {!loading && grouped.length === 0 && (
+            <EmptyState icon="budget" title="No transactions" subtitle="Tap + to log your first expense" />
+          )}
+          {grouped.map(([date, items]) => {
+            const dayTotal = items.reduce((s, e) => s + e.amount, 0);
+            return (
+              <div key={date} style={{ marginBottom: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: T.textMuted, letterSpacing: 0.3 }}>{fmtDate(date)}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: T.text, fontFamily: T.fontMono }}>CHF {dayTotal.toFixed(2)}</span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {items.map(e => {
+                    const cat = getCat(e.category);
+                    return (
+                      <div key={e.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}>
+                        <div style={{ width: 36, height: 36, borderRadius: 10, background: cat.color + "22", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          <Icon name={cat.icon} size={17} color={cat.color} />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{e.description || cat.label}</div>
+                          <div style={{ fontSize: 10, color: cat.color, background: cat.color + "18", borderRadius: 5, padding: "1px 6px", display: "inline-block", marginTop: 3, fontWeight: 600 }}>{cat.label}</div>
+                        </div>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: T.text, fontFamily: T.fontMono }}>CHF {e.amount.toFixed(2)}</div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             );
-          })
-        )}
-      </div>
+          })}
+        </div>
+      </PageScroll>
+
+      <Fab onClick={() => setShowAdd(true)} icon="plus" color={T.amber} />
+      {showAdd && <AddExpenseSheet onClose={() => setShowAdd(false)} onAdded={reload} />}
+      {selectedCategory && (
+        <CategoryDetailPage
+          category={selectedCategory}
+          onBack={() => setSelectedCategory(null)}
+        />
+      )}
     </div>
   );
 }

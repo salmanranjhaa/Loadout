@@ -1,271 +1,255 @@
 import { useState, useEffect } from "react";
-import { Plus, Trash2, Edit2, Check, X, Package } from "lucide-react";
+import { T } from "../design/tokens";
+import { Icon } from "../design/icons";
+import { Fab, PageHeader, PageScroll, SectionHead, EmptyState, LoadingDots } from "../design/components";
 import { inventoryAPI } from "../utils/api";
+import PantryDetailPage from "./details/PantryDetailPage";
 
-const CATEGORIES = [
-  { id: "all", label: "All" },
-  { id: "protein", label: "Protein", color: "text-red-400", bg: "bg-red-900/20" },
-  { id: "carbs", label: "Carbs", color: "text-amber-400", bg: "bg-amber-900/20" },
-  { id: "veggies", label: "Veggies", color: "text-emerald-400", bg: "bg-emerald-900/20" },
-  { id: "dairy", label: "Dairy", color: "text-blue-400", bg: "bg-blue-900/20" },
-  { id: "fats", label: "Fats", color: "text-yellow-400", bg: "bg-yellow-900/20" },
-  { id: "spices", label: "Spices", color: "text-orange-400", bg: "bg-orange-900/20" },
-  { id: "other", label: "Other", color: "text-slate-400", bg: "bg-slate-800/60" },
+const FILTER_CATS = [
+  { id: "all",     label: "All",     color: T.teal   },
+  { id: "protein", label: "Protein", color: T.negative },
+  { id: "produce", label: "Produce", color: "#5FC87A" },
+  { id: "grains",  label: "Grains",  color: T.amber  },
+  { id: "dairy",   label: "Dairy",   color: "#5C8FFC" },
+  { id: "pantry",  label: "Pantry",  color: T.violet },
 ];
 
-const UNITS = ["g", "kg", "pieces", "tbsp", "tsp", "cups", "L", "ml", "cans", "portions"];
+const CAT_MAP = {
+  protein: { label: "Protein", color: T.negative },
+  produce: { label: "Produce", color: "#5FC87A"  },
+  grains:  { label: "Grains",  color: T.amber    },
+  dairy:   { label: "Dairy",   color: "#5C8FFC"  },
+  pantry:  { label: "Pantry",  color: T.violet   },
+  other:   { label: "Other",   color: T.textMuted },
+};
 
-function categoryStyle(cat) {
-  return CATEGORIES.find(c => c.id === cat) || CATEGORIES.find(c => c.id === "other");
-}
+function getCatMeta(id) { return CAT_MAP[id] || CAT_MAP.other; }
 
-function AddItemForm({ onAdded, onCancel }) {
+const MOCK_ITEMS = [
+  { id: "i1", name: "Chicken Breast",   category: "protein", quantity: 600,  unit: "g",       expiry_days: 2,  expiry_date: "2025-04-26" },
+  { id: "i2", name: "Greek Yogurt",     category: "dairy",   quantity: 500,  unit: "g",       expiry_days: 5,  expiry_date: "2025-04-29" },
+  { id: "i3", name: "Spinach",          category: "produce", quantity: 200,  unit: "g",       expiry_days: 3,  expiry_date: "2025-04-27" },
+  { id: "i4", name: "Oats",             category: "grains",  quantity: 800,  unit: "g",       expiry_days: 90, expiry_date: "2025-07-20" },
+  { id: "i5", name: "Eggs",             category: "protein", quantity: 12,   unit: "pieces",  expiry_days: 14, expiry_date: "2025-05-08" },
+  { id: "i6", name: "Brown Rice",       category: "grains",  quantity: 500,  unit: "g",       expiry_days: 120, expiry_date: "2025-08-20" },
+  { id: "i7", name: "Canned Tuna",      category: "protein", quantity: 4,    unit: "cans",    expiry_days: 365, expiry_date: "2026-04-20" },
+  { id: "i8", name: "Broccoli",         category: "produce", quantity: 1,    unit: "pieces",  expiry_days: 1,  expiry_date: "2025-04-25" },
+  { id: "i9", name: "Whole Milk",       category: "dairy",   quantity: 1,    unit: "L",       expiry_days: 4,  expiry_date: "2025-04-28" },
+  { id: "i10", name: "Olive Oil",       category: "pantry",  quantity: 500,  unit: "ml",      expiry_days: 180, expiry_date: "2025-10-20" },
+];
+
+function AddItemSheet({ onClose, onAdded }) {
   const [name, setName] = useState("");
-  const [quantity, setQuantity] = useState("");
+  const [qty, setQty] = useState("");
   const [unit, setUnit] = useState("g");
-  const [category, setCategory] = useState("other");
+  const [cat, setCat] = useState("protein");
   const [saving, setSaving] = useState(false);
+  const UNITS = ["g", "kg", "pieces", "cans", "L", "ml", "portions", "tbsp"];
 
-  async function handleAdd() {
+  async function handleSave() {
     if (!name.trim()) return;
     setSaving(true);
     try {
-      await onAdded({ name: name.trim(), quantity: quantity ? Number(quantity) : null, unit, category });
-      setName(""); setQuantity(""); setUnit("g"); setCategory("other");
-    } catch (e) {
-      alert(e.message);
-    }
+      await inventoryAPI.add({ name: name.trim(), quantity: qty ? Number(qty) : null, unit, category: cat });
+      onAdded();
+      onClose();
+    } catch (e) { console.error(e); }
     setSaving(false);
   }
 
   return (
-    <div className="bg-bg-card rounded-xl p-4 border border-slate-700 space-y-3">
-      <p className="text-xs font-semibold text-slate-400">Add Item</p>
-      <input
-        value={name}
-        onChange={e => setName(e.target.value)}
-        placeholder="Item name (e.g. Chicken breast)"
-        className="w-full bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 border border-slate-700 focus:border-emerald-500 focus:outline-none"
-        onKeyDown={e => e.key === "Enter" && handleAdd()}
-        autoFocus
-      />
-      <div className="flex gap-2">
-        <input
-          type="number"
-          value={quantity}
-          onChange={e => setQuantity(e.target.value)}
-          placeholder="Qty"
-          className="w-20 bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 border border-slate-700 focus:border-emerald-500 focus:outline-none"
-          min={0}
-        />
-        <select
-          value={unit}
-          onChange={e => setUnit(e.target.value)}
-          className="flex-1 bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 border border-slate-700 focus:border-emerald-500 focus:outline-none"
-        >
-          {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-        </select>
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        {CATEGORIES.filter(c => c.id !== "all").map(c => (
-          <button
-            key={c.id}
-            onClick={() => setCategory(c.id)}
-            className={`px-2.5 py-1 rounded-full text-[10px] transition-all ${
-              category === c.id ? `${c.bg} ${c.color} ring-1 ring-current` : "bg-slate-800 text-slate-500"
-            }`}
-          >
-            {c.label}
+    <div style={{ position: "absolute", inset: 0, zIndex: 40, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)" }} />
+      <div style={{ position: "relative", background: T.surface, borderRadius: "20px 20px 0 0", padding: "20px 20px 36px", border: `1px solid ${T.border}` }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>Add Item</div>
+          <button onClick={onClose} style={{ background: T.elevated, border: "none", borderRadius: 9999, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: T.textMuted }}>
+            <Icon name="x" size={14} />
           </button>
-        ))}
-      </div>
-      <div className="flex gap-2">
-        <button onClick={onCancel} className="flex-1 py-2 text-xs text-slate-500 bg-slate-800/60 rounded-lg">
-          Cancel
-        </button>
-        <button
-          onClick={handleAdd}
-          disabled={saving || !name.trim()}
-          className="flex-1 py-2 text-xs text-emerald-300 bg-emerald-600/20 rounded-lg hover:bg-emerald-600/30 disabled:opacity-40 flex items-center justify-center gap-1.5"
-        >
-          <Check size={13} />
-          {saving ? "Adding…" : "Add"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function InventoryItemRow({ item, onUpdate, onDelete }) {
-  const [editing, setEditing] = useState(false);
-  const [qty, setQty] = useState(item.quantity ?? "");
-  const [unit, setUnit] = useState(item.unit || "g");
-  const [saving, setSaving] = useState(false);
-  const style = categoryStyle(item.category);
-
-  async function saveEdit() {
-    setSaving(true);
-    try {
-      await onUpdate(item.id, { quantity: qty ? Number(qty) : null, unit });
-      setEditing(false);
-    } catch (e) {
-      alert(e.message);
-    }
-    setSaving(false);
-  }
-
-  return (
-    <div className="bg-bg-card rounded-xl px-3 py-2.5 flex items-center gap-3">
-      <span className={`text-[10px] px-2 py-0.5 rounded-full flex-shrink-0 ${style.bg} ${style.color}`}>
-        {style.label}
-      </span>
-      <span className="flex-1 text-sm text-slate-200 truncate">{item.name}</span>
-
-      {editing ? (
-        <div className="flex items-center gap-1.5 flex-shrink-0">
+        </div>
+        <input
+          autoFocus
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder="Item name (e.g. Chicken Breast)"
+          onKeyDown={e => e.key === "Enter" && handleSave()}
+          style={{ width: "100%", background: T.elevated, border: `1px solid ${T.border}`, borderRadius: T.rInput, padding: "11px 14px", fontSize: 14, color: T.text, fontFamily: "inherit", outline: "none", marginBottom: 12, boxSizing: "border-box" }}
+        />
+        <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
           <input
             type="number"
             value={qty}
             onChange={e => setQty(e.target.value)}
-            className="w-16 bg-slate-800 rounded px-2 py-1 text-xs text-slate-200 focus:outline-none"
+            placeholder="Qty"
             min={0}
+            style={{ width: 80, background: T.elevated, border: `1px solid ${T.border}`, borderRadius: T.rInput, padding: "10px 12px", fontSize: 13, color: T.text, fontFamily: T.fontMono, outline: "none" }}
           />
           <select
             value={unit}
             onChange={e => setUnit(e.target.value)}
-            className="bg-slate-800 rounded px-1.5 py-1 text-xs text-slate-300 focus:outline-none"
+            style={{ flex: 1, background: T.elevated, border: `1px solid ${T.border}`, borderRadius: T.rInput, padding: "10px 12px", fontSize: 13, color: T.text, fontFamily: "inherit", outline: "none" }}
           >
             {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
           </select>
-          <button onClick={saveEdit} disabled={saving} className="p-1 text-emerald-400 hover:text-emerald-300">
-            <Check size={13} />
-          </button>
-          <button onClick={() => setEditing(false)} className="p-1 text-slate-600 hover:text-slate-400">
-            <X size={13} />
-          </button>
         </div>
-      ) : (
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {item.quantity != null && (
-            <span className="text-xs text-slate-400">{item.quantity} {item.unit}</span>
-          )}
-          <button onClick={() => setEditing(true)} className="p-1 text-slate-600 hover:text-amber-400">
-            <Edit2 size={12} />
-          </button>
-          <button onClick={() => onDelete(item.id)} className="p-1 text-slate-700 hover:text-red-400">
-            <Trash2 size={12} />
-          </button>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
+          {Object.entries(CAT_MAP).filter(([k]) => k !== "other").map(([id, meta]) => (
+            <button key={id} onClick={() => setCat(id)} style={{ padding: "6px 12px", borderRadius: 9999, background: cat === id ? meta.color + "22" : T.elevated, border: `1px solid ${cat === id ? meta.color + "55" : T.border}`, color: cat === id ? meta.color : T.textMuted, fontSize: 12, fontWeight: cat === id ? 700 : 500, cursor: "pointer", fontFamily: "inherit" }}>
+              {meta.label}
+            </button>
+          ))}
         </div>
-      )}
+        <button onClick={handleSave} disabled={saving || !name.trim()} style={{ width: "100%", padding: "13px 0", background: T.teal, color: "#0A0A0F", border: "none", borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: saving || !name.trim() ? "not-allowed" : "pointer", opacity: saving || !name.trim() ? 0.5 : 1, fontFamily: "inherit" }}>
+          {saving ? "Adding…" : "Add to Pantry"}
+        </button>
+      </div>
     </div>
   );
 }
 
-export default function InventoryPage() {
-  const [items, setItems] = useState([]);
+function ItemCard({ item, onClick }) {
+  const cat = getCatMeta(item.category);
+  const daysLeft = item.expiry_days;
+  const isExpiring = daysLeft != null && daysLeft <= 3;
+
+  return (
+    <div onClick={onClick} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "13px 14px", display: "flex", alignItems: "center", gap: 12, cursor: "pointer", marginBottom: 8 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: cat.color, background: cat.color + "1A", padding: "2px 7px", borderRadius: 5 }}>
+            {cat.label.toUpperCase()}
+          </span>
+        </div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: T.text, marginBottom: daysLeft != null ? 4 : 0 }}>{item.name}</div>
+        {daysLeft != null && (
+          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <div style={{ width: 6, height: 6, borderRadius: "50%", background: isExpiring ? T.amber : T.textDim, flexShrink: 0 }} />
+            <span style={{ fontSize: 11, color: isExpiring ? T.amber : T.textMuted, fontWeight: isExpiring ? 600 : 400 }}>
+              {isExpiring ? `Expires in ${daysLeft}d` : `Expires in ${daysLeft}d`}
+            </span>
+          </div>
+        )}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+        {item.quantity != null && (
+          <span style={{ fontSize: 13, fontWeight: 700, color: T.text, fontFamily: T.fontMono }}>
+            {item.quantity} <span style={{ fontSize: 10, color: T.textMuted, fontWeight: 400 }}>{item.unit}</span>
+          </span>
+        )}
+        <Icon name="chev-right" size={15} color={T.textDim} />
+      </div>
+    </div>
+  );
+}
+
+export default function InventoryPage({ profile, onProfile }) {
+  const [items, setItems] = useState(MOCK_ITEMS);
   const [filter, setFilter] = useState("all");
   const [showAdd, setShowAdd] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [selectedItem, setSelectedItem] = useState(null);
 
-  useEffect(() => { loadItems(); }, []);
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await inventoryAPI.getAll();
+        if (data?.items?.length) setItems(data.items);
+      } catch {
+        // use mock
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
 
-  async function loadItems() {
+  async function reload() {
     try {
       const data = await inventoryAPI.getAll();
-      setItems(data.items);
-    } catch { /* silently fail */ }
+      if (data?.items) setItems(data.items);
+    } catch {}
   }
 
-  async function handleAdd(data) {
-    const item = await inventoryAPI.add(data);
-    setItems(prev => [...prev, item]);
-    setShowAdd(false);
-  }
-
-  async function handleUpdate(id, data) {
-    const updated = await inventoryAPI.update(id, data);
-    setItems(prev => prev.map(i => i.id === id ? updated : i));
-  }
-
-  async function handleDelete(id) {
-    await inventoryAPI.delete(id);
-    setItems(prev => prev.filter(i => i.id !== id));
-  }
+  const countByFilter = {
+    all: items.length,
+    protein: items.filter(i => i.category === "protein").length,
+    produce: items.filter(i => i.category === "produce").length,
+    grains:  items.filter(i => i.category === "grains").length,
+    dairy:   items.filter(i => i.category === "dairy").length,
+    pantry:  items.filter(i => i.category === "pantry").length,
+  };
 
   const filtered = filter === "all" ? items : items.filter(i => i.category === filter);
 
-  const countByCategory = items.reduce((acc, i) => {
-    acc[i.category] = (acc[i.category] || 0) + 1;
-    return acc;
-  }, {});
+  // Sort: expiring soon first
+  const sorted = [...filtered].sort((a, b) => {
+    const da = a.expiry_days ?? 9999;
+    const db = b.expiry_days ?? 9999;
+    return da - db;
+  });
+
+  const mealMatchCount = 3;
 
   return (
-    <div className="px-4 pt-4 pb-6 max-w-lg mx-auto">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-xl font-bold bg-gradient-to-r from-teal-400 to-cyan-400 bg-clip-text text-transparent flex items-center gap-2">
-            <Package size={20} className="text-teal-400" />
-            Inventory
-          </h1>
-          <p className="text-[10px] text-slate-500 mt-0.5">What's in your kitchen — AI uses this for recipe suggestions</p>
-        </div>
-        <button
-          onClick={() => setShowAdd(v => !v)}
-          className="p-2 bg-teal-600/20 text-teal-400 rounded-xl hover:bg-teal-600/30 transition-colors"
-        >
-          <Plus size={18} />
-        </button>
-      </div>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden", background: T.bg, position: "relative" }}>
+      <PageHeader title="Pantry" subtitle="Smart inventory for AI meal planning" profile={profile} onProfile={onProfile} />
 
-      {showAdd && (
-        <div className="mb-4">
-          <AddItemForm onAdded={handleAdd} onCancel={() => setShowAdd(false)} />
+      <PageScroll>
+        {/* AI chip banner */}
+        <div style={{ margin: "0 20px 16px", borderRadius: T.rCard, background: `linear-gradient(135deg, ${T.violet}33, ${T.teal}22)`, border: `1px solid ${T.violet}44`, padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}>
+          <div style={{ width: 36, height: 36, borderRadius: 10, background: `linear-gradient(135deg, ${T.violet}, ${T.teal})`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Icon name="sparkle" size={18} color="#0A0A0F" />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 2 }}>AI uses this for meal suggestions</div>
+            <div style={{ fontSize: 11, color: T.teal }}>
+              {mealMatchCount} meal ideas match your current pantry · tap to see
+            </div>
+          </div>
+          <Icon name="chev-right" size={16} color={T.textDim} />
         </div>
-      )}
 
-      {/* Category filter */}
-      <div className="flex gap-1.5 overflow-x-auto scrollbar-none mb-4 pb-1">
-        {CATEGORIES.map(c => {
-          const count = c.id === "all" ? items.length : (countByCategory[c.id] || 0);
-          return (
-            <button
-              key={c.id}
-              onClick={() => setFilter(c.id)}
-              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[11px] transition-all flex items-center gap-1 ${
-                filter === c.id
-                  ? `${c.bg || "bg-slate-700"} ${c.color || "text-slate-300"} ring-1 ring-current`
-                  : "bg-slate-800 text-slate-500"
-              }`}
-            >
-              {c.label}
-              {count > 0 && <span className="text-[9px] opacity-70">{count}</span>}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Item list */}
-      {filtered.length === 0 ? (
-        <div className="text-center py-10 text-slate-500 text-sm">
-          {items.length === 0
-            ? <>No items yet. Tap <span className="text-teal-400">+</span> to add what's in your kitchen.</>
-            : "No items in this category."}
+        {/* Filter pills */}
+        <div style={{ display: "flex", gap: 8, overflowX: "auto", padding: "0 20px 16px", scrollbarWidth: "none" }}>
+          {FILTER_CATS.map(c => {
+            const count = countByFilter[c.id] || 0;
+            const active = filter === c.id;
+            return (
+              <button key={c.id} onClick={() => setFilter(c.id)} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 13px", borderRadius: 9999, background: active ? c.color : T.elevated, border: `1px solid ${active ? c.color : T.border}`, color: active ? "#0A0A0F" : T.text, fontSize: 12, fontWeight: active ? 700 : 500, whiteSpace: "nowrap", cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+                {c.label}
+                <span style={{ fontSize: 10, fontFamily: T.fontMono, opacity: 0.7 }}>{count}</span>
+              </button>
+            );
+          })}
         </div>
-      ) : (
-        <div className="space-y-1.5">
-          {filtered.map(item => (
-            <InventoryItemRow
-              key={item.id}
-              item={item}
-              onUpdate={handleUpdate}
-              onDelete={handleDelete}
-            />
+
+        {/* Items */}
+        <div style={{ padding: "0 20px 24px" }}>
+          {loading && <LoadingDots />}
+          {!loading && sorted.length === 0 && (
+            <EmptyState icon="pantry" title="Nothing here" subtitle={filter === "all" ? "Tap + to add what's in your kitchen" : "No items in this category"} />
+          )}
+          {sorted.map(item => (
+            <ItemCard key={item.id} item={item} onClick={() => setSelectedItem(item)} />
           ))}
         </div>
-      )}
+      </PageScroll>
 
-      <p className="text-[10px] text-slate-600 text-center mt-6">
-        {items.length} item{items.length !== 1 ? "s" : ""} · AI reads this when suggesting recipes &amp; grocery lists
-      </p>
+      <Fab onClick={() => setShowAdd(true)} icon="plus" />
+      {showAdd && <AddItemSheet onClose={() => setShowAdd(false)} onAdded={reload} />}
+      {selectedItem && (
+        <PantryDetailPage
+          item={{
+            ...selectedItem,
+            expiry_days: selectedItem.expiry_days,
+            location: selectedItem.location || "Fridge",
+          }}
+          onBack={() => setSelectedItem(null)}
+          onDelete={() => {
+            setItems(prev => prev.filter(i => i.id !== selectedItem.id));
+            setSelectedItem(null);
+          }}
+        />
+      )}
     </div>
   );
 }
