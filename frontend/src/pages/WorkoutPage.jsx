@@ -1,10 +1,22 @@
-﻿import { useState, useEffect } from "react";
+﻿import { useState, useEffect, useRef } from "react";
 import { T } from "../design/tokens";
 import { Icon } from "../design/icons";
 import { Card, Chip, PageHeader, PageScroll, SectionHead, EmptyState, LoadingDots } from "../design/components";
 import { workoutAPI } from "../utils/api";
 import TemplateDetailPage from "./details/TemplateDetailPage";
 import WorkoutLogPage from "./details/WorkoutLogPage";
+
+// Shared exercise library (mirrors WorkoutLogPage for autocomplete)
+const EXERCISE_DB = [
+  "Bench Press","Incline Bench Press","Decline Bench Press","Incline DB Press","Flat DB Press","Cable Fly (High to Low)","Cable Fly (Low to High)","Pec Deck","Chest Press Machine","Weighted Dips","Push-ups",
+  "Deadlift","Romanian Deadlift","Sumo Deadlift","Rack Pull","Pull-ups","Weighted Pull-ups","Chin-ups","Bent-over Barbell Row","One-arm DB Row","Lat Pulldown","Seated Cable Row","T-Bar Row","Face Pull","Machine Row",
+  "Overhead Press (Barbell)","DB Shoulder Press","Seated DB Press","Arnold Press","Lateral Raise","Cable Lateral Raise","Front Raise","Rear Delt Fly","Upright Row","Machine Shoulder Press",
+  "Barbell Curl","EZ-Bar Curl","DB Curl","Hammer Curl","Incline DB Curl","Concentration Curl","Spider Curl","Cable Curl","Preacher Curl","Reverse Curl",
+  "Close Grip Bench Press","Skull Crusher (EZ-Bar)","Skull Crusher (DB)","Tricep Pushdown (Rope)","Tricep Pushdown (Bar)","Overhead Tricep Extension","Cable Overhead Extension","Dips (Tricep)","Diamond Push-ups","Kickbacks",
+  "Back Squat","Front Squat","Goblet Squat","Bulgarian Split Squat","Leg Press","Hack Squat","Leg Extension","Seated Leg Curl","Lying Leg Curl","Hip Thrust","Walking Lunges","Reverse Lunges","Calf Raise (Standing)","Calf Raise (Seated)","Step-ups","Good Mornings","Glute Kickback",
+  "Plank","Side Plank","Hanging Leg Raise","Ab Wheel Rollout","Cable Crunch","Russian Twist","Dead Bug","Hollow Body Hold","V-ups","Pallof Press",
+  "Ski Erg","Sled Push","Sled Pull","Burpee Broad Jump","Wall Ball","Sandbag Lunges","Rowing Machine","Assault Bike","Box Jump","Kettlebell Swing","Battle Rope","Farmer's Carry","Double Unders","Tuck Jump",
+];
 
 const SPORTS_BROWSER = [
   { id:"all", label:"All" }, { id:"crossfit", label:"CrossFit" },
@@ -280,6 +292,95 @@ function AIWorkoutLogger({ onClose, onRefresh }) {
   );
 }
 
+// ── ExerciseAutocomplete ──────────────────────────────────────────────────────
+function ExerciseAutocomplete({ value, onChange, placeholder }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState(value);
+  const containerRef = useRef(null);
+
+  const suggestions = query.trim().length > 0
+    ? EXERCISE_DB.filter(e => e.toLowerCase().includes(query.toLowerCase())).slice(0, 6)
+    : [];
+
+  function select(name) {
+    setQuery(name);
+    onChange(name);
+    setOpen(false);
+  }
+
+  function handleChange(e) {
+    setQuery(e.target.value);
+    onChange(e.target.value);
+    setOpen(true);
+  }
+
+  // Close on outside click
+  useEffect(() => {
+    function handleClick(e) {
+      if (containerRef.current && !containerRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  return (
+    <div ref={containerRef} style={{ position: "relative", width: "100%" }}>
+      <input
+        value={query}
+        onChange={handleChange}
+        onFocus={() => setOpen(true)}
+        placeholder={placeholder || "Exercise name…"}
+        style={{ ...inp(open && query), width: "100%", boxSizing: "border-box" }}
+      />
+      {open && suggestions.length > 0 && (
+        <div style={{
+          position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50,
+          background: T.surface, border: `1px solid ${T.teal}44`,
+          borderRadius: 10, marginTop: 3, overflow: "hidden",
+          boxShadow: `0 8px 24px rgba(0,0,0,0.4)`,
+        }}>
+          {suggestions.map(s => (
+            <button
+              key={s}
+              onMouseDown={e => { e.preventDefault(); select(s); }}
+              style={{
+                width: "100%", textAlign: "left", padding: "9px 12px",
+                background: "none", border: "none", borderBottom: `0.5px solid ${T.border}`,
+                color: T.text, fontSize: 13, cursor: "pointer", fontFamily: "inherit",
+                display: "flex", alignItems: "center", gap: 8,
+              }}
+            >
+              <Icon name="dumbbell" size={12} color={T.teal} />
+              {/* Highlight matching part */}
+              {(() => {
+                const idx = s.toLowerCase().indexOf(query.toLowerCase());
+                if (idx === -1) return s;
+                return (
+                  <>
+                    {s.slice(0, idx)}
+                    <b style={{ color: T.teal }}>{s.slice(idx, idx + query.length)}</b>
+                    {s.slice(idx + query.length)}
+                  </>
+                );
+              })()}
+            </button>
+          ))}
+          {/* Option to add custom if not in DB */}
+          {!EXERCISE_DB.some(e => e.toLowerCase() === query.toLowerCase()) && query.trim() && (
+            <button
+              onMouseDown={e => { e.preventDefault(); select(query.trim()); }}
+              style={{ width:"100%", textAlign:"left", padding:"9px 12px", background:`${T.teal}12`, border:"none", color:T.teal, fontSize:12, cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", gap:8, fontWeight:600 }}
+            >
+              <Icon name="plus" size={12} color={T.teal} />
+              Add "{query.trim()}" as custom exercise
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── CreateTemplateSheet ───────────────────────────────────────────────────────
 function CreateTemplateSheet({ onClose, onRefresh }) {
   const [name, setName] = useState("");
@@ -287,8 +388,6 @@ function CreateTemplateSheet({ onClose, onRefresh }) {
   const [dur, setDur] = useState("60");
   const [exercises, setExercises] = useState([{ name:"", sets:"3", reps:"10" }]);
   const [saving, setSaving] = useState(false);
-  const [focusName, setFocusName] = useState(false);
-  const [focusDur, setFocusDur] = useState(false);
 
   function addRow() { setExercises(p=>[...p,{ name:"", sets:"3", reps:"10" }]); }
   function removeRow(i) { setExercises(p=>p.filter((_,idx)=>idx!==i)); }
@@ -299,25 +398,34 @@ function CreateTemplateSheet({ onClose, onRefresh }) {
     setSaving(true);
     try {
       await workoutAPI.saveTemplate({
-        name:name.trim(), workout_type:wtype, estimated_duration:Number(dur)||undefined,
-        exercises:exercises.filter(e=>e.name.trim()).map(e=>({ name:e.name, sets:Number(e.sets)||undefined, reps:e.reps||undefined })),
+        name: name.trim(),
+        workout_type: wtype,
+        estimated_duration: Number(dur) || undefined,
+        exercises: exercises.filter(e=>e.name.trim()).map(e=>({
+          name: e.name,
+          sets: Number(e.sets) || 3,
+          reps: e.reps || "10",
+        })),
       });
       onRefresh?.();
       onClose();
-    } catch(e) { alert(e.message||"Save failed"); }
+    } catch(e) { alert(e.message || "Save failed"); }
     setSaving(false);
   }
 
+  const labelStyle = { fontSize:11, color:T.textMuted, marginBottom:8, fontWeight:600, letterSpacing:0.5, textTransform:"uppercase" };
+
   return (
     <Sheet title="New Template" onClose={onClose}>
+      {/* Template name */}
       <div>
-        <div style={{ fontSize:11, color:T.textMuted, marginBottom:8, fontWeight:600, letterSpacing:0.5, textTransform:"uppercase" }}>Template Name</div>
-        <input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Push Day A"
-          onFocus={()=>setFocusName(true)} onBlur={()=>setFocusName(false)} style={inp(focusName)} />
+        <div style={labelStyle}>Template Name</div>
+        <input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Push Day A" style={inp(false)} />
       </div>
 
+      {/* Workout type */}
       <div>
-        <div style={{ fontSize:11, color:T.textMuted, marginBottom:8, fontWeight:600, letterSpacing:0.5, textTransform:"uppercase" }}>Workout Type</div>
+        <div style={labelStyle}>Workout Type</div>
         <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
           {WORKOUT_TYPES.map(wt=>(
             <button key={wt} onClick={()=>setWtype(wt)}
@@ -328,33 +436,60 @@ function CreateTemplateSheet({ onClose, onRefresh }) {
         </div>
       </div>
 
+      {/* Duration */}
       <div>
-        <div style={{ fontSize:11, color:T.textMuted, marginBottom:8, fontWeight:600, letterSpacing:0.5, textTransform:"uppercase" }}>Est. Duration (min)</div>
+        <div style={labelStyle}>Est. Duration (min)</div>
         <input type="number" value={dur} onChange={e=>setDur(e.target.value)} min={1}
-          onFocus={()=>setFocusDur(true)} onBlur={()=>setFocusDur(false)} style={{ ...inp(focusDur), width:100 }} />
+          style={{ ...inp(false), width:90, textAlign:"center", fontFamily:T.fontMono }} />
       </div>
 
+      {/* Exercises */}
       <div>
         <div style={{ display:"flex", alignItems:"center", marginBottom:10 }}>
-          <span style={{ fontSize:11, color:T.textMuted, fontWeight:600, letterSpacing:0.5, textTransform:"uppercase", flex:1 }}>Exercises</span>
-          <button onClick={addRow} style={{ background:T.elevated, border:`1px solid ${T.border}`, borderRadius:8, padding:"4px 10px", fontSize:11, color:T.teal, cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", gap:4 }}>
-            <Icon name="plus" size={12} color={T.teal} />Add
+          <span style={{ ...labelStyle, marginBottom:0, flex:1 }}>Exercises</span>
+          <button onClick={addRow}
+            style={{ background:T.elevated, border:`1px solid ${T.teal}55`, borderRadius:8, padding:"5px 12px", fontSize:12, color:T.teal, cursor:"pointer", fontFamily:"inherit", display:"flex", alignItems:"center", gap:5, fontWeight:600 }}>
+            <Icon name="plus" size={13} color={T.teal} />Add
           </button>
         </div>
-        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+
+        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
           {exercises.map((ex,i)=>(
-            <div key={i} style={{ display:"flex", gap:8, alignItems:"center" }}>
-              <input value={ex.name} onChange={e=>updateRow(i,"name",e.target.value)} placeholder="Exercise name"
-                style={{ ...inp(false), flex:2 }} />
-              <input type="number" value={ex.sets} onChange={e=>updateRow(i,"sets",e.target.value)} placeholder="Sets" min={1}
-                style={{ ...inp(false), width:56, padding:"10px 8px", textAlign:"center" }} />
-              <input value={ex.reps} onChange={e=>updateRow(i,"reps",e.target.value)} placeholder="Reps"
-                style={{ ...inp(false), width:64, padding:"10px 8px", textAlign:"center" }} />
-              {exercises.length>1 && (
-                <button onClick={()=>removeRow(i)} style={{ background:"none", border:"none", cursor:"pointer", color:T.textDim, padding:4, flexShrink:0 }}>
-                  <Icon name="trash" size={14} color={T.negative} />
-                </button>
-              )}
+            <div key={i} style={{ background:T.elevated, border:`1px solid ${T.border}`, borderRadius:12, padding:"12px 12px 10px" }}>
+              {/* Row header */}
+              <div style={{ display:"flex", alignItems:"center", marginBottom:8 }}>
+                <div style={{ width:20, height:20, borderRadius:6, background:T.elevated2, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700, color:T.textMuted, fontFamily:T.fontMono, marginRight:8, flexShrink:0 }}>
+                  {i+1}
+                </div>
+                <span style={{ fontSize:11, color:T.textMuted, flex:1, fontWeight:600 }}>Exercise {i+1}</span>
+                {exercises.length > 1 && (
+                  <button onClick={()=>removeRow(i)}
+                    style={{ background:"none", border:"none", cursor:"pointer", padding:3, color:T.negative, display:"flex", alignItems:"center" }}>
+                    <Icon name="trash" size={13} color={T.negative} />
+                  </button>
+                )}
+              </div>
+
+              {/* Autocomplete name input */}
+              <ExerciseAutocomplete
+                value={ex.name}
+                onChange={val=>updateRow(i,"name",val)}
+                placeholder="Search or type exercise name…"
+              />
+
+              {/* Sets / Reps side by side */}
+              <div style={{ display:"flex", gap:8, marginTop:8 }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:9, color:T.textDim, fontWeight:600, textTransform:"uppercase", letterSpacing:0.4, marginBottom:4 }}>Sets</div>
+                  <input type="number" value={ex.sets} onChange={e=>updateRow(i,"sets",e.target.value)} min={1} max={20}
+                    style={{ ...inp(false), textAlign:"center", fontFamily:T.fontMono, padding:"8px 0" }} />
+                </div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:9, color:T.textDim, fontWeight:600, textTransform:"uppercase", letterSpacing:0.4, marginBottom:4 }}>Reps / Duration</div>
+                  <input value={ex.reps} onChange={e=>updateRow(i,"reps",e.target.value)} placeholder="10 or 30s"
+                    style={{ ...inp(false), textAlign:"center", fontFamily:T.fontMono, padding:"8px 0" }} />
+                </div>
+              </div>
             </div>
           ))}
         </div>
@@ -362,7 +497,7 @@ function CreateTemplateSheet({ onClose, onRefresh }) {
 
       <button onClick={handleSave} disabled={saving||!name.trim()}
         style={{ padding:"13px 0", background:saving||!name.trim()?T.elevated:T.teal, color:saving||!name.trim()?T.textMuted:"#0A0A0F", border:"none", borderRadius:T.rCard, fontSize:14, fontWeight:700, cursor:saving||!name.trim()?"not-allowed":"pointer", fontFamily:"inherit" }}>
-        {saving?"Saving…":"Save Template"}
+        {saving ? "Saving…" : "Save Template"}
       </button>
     </Sheet>
   );

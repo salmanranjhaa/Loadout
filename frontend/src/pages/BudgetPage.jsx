@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { T } from "../design/tokens";
 import { Icon } from "../design/icons";
-import { Card, PageHeader, PageScroll, SectionHead, EmptyState, LoadingDots } from "../design/components";
+import { Card, Fab, PageHeader, PageScroll, SectionHead, EmptyState, LoadingDots } from "../design/components";
 import { budgetAPI } from "../utils/api";
 import CategoryDetailPage from "./details/CategoryDetailPage";
 
@@ -167,68 +167,92 @@ function WeekBarsChart({ bars, avg }) {
   );
 }
 
-function AddEntrySheet({ onClose, onAdded, type = "expense" }) {
-  const isIncome = type === "income";
+// Unified add sheet — toggle between Expense and Income at the top
+function AddEntrySheet({ onClose, onAdded }) {
+  const [entryType, setEntryType] = useState("expense");
+  const isIncome = entryType === "income";
   const cats = isIncome ? INCOME_CATS : EXPENSE_CATS;
+  const [cat, setCat] = useState("food");
   const [amount, setAmount] = useState("");
-  const [cat, setCat] = useState(isIncome ? "income" : "food");
   const [desc, setDesc] = useState("");
   const [account, setAccount] = useState("");
   const [saving, setSaving] = useState(false);
+
+  function switchType(t) {
+    setEntryType(t);
+    setCat(t === "income" ? "income" : "food");
+    setDesc(""); setAccount("");
+  }
 
   async function handleSave() {
     if (!amount || parseFloat(amount) <= 0) return;
     setSaving(true);
     try {
-      const fullDesc = [desc, account ? `(${account})` : ""].filter(Boolean).join(" ") || null;
-      await budgetAPI.add({ amount: parseFloat(amount), category: cat, description: fullDesc });
+      const parts = [desc.trim(), isIncome && account.trim() ? `(${account.trim()})` : ""].filter(Boolean);
+      await budgetAPI.add({
+        amount: parseFloat(amount),
+        category: cat,
+        description: parts.join(" ") || null,
+      });
       onAdded();
       onClose();
-    } catch (e) { console.error(e); }
+    } catch (e) { alert(e?.message || "Failed to save"); }
     setSaving(false);
   }
 
   const accentColor = isIncome ? T.teal : T.amber;
 
   return (
-    <div style={{ position: "absolute", inset: 0, zIndex: 40, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)" }} />
-      <div style={{ position: "relative", background: T.surface, borderRadius: "20px 20px 0 0", padding: "20px 20px 40px", border: `1px solid ${T.border}` }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(2px)" }} />
+      <div style={{ position: "relative", background: T.surface, borderRadius: "20px 20px 0 0", padding: "16px 20px 44px", border: `1px solid ${T.border}`, borderBottom: "none", maxHeight: "88vh", overflowY: "auto" }}>
         <div style={{ width: 36, height: 4, borderRadius: 9999, background: T.border, margin: "0 auto 16px" }} />
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{isIncome ? "Add Income / Savings" : "Add Expense"}</div>
-          <button onClick={onClose} style={{ background: T.elevated, border: "none", borderRadius: 9999, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: T.textMuted }}>
-            <Icon name="x" size={14} />
-          </button>
+
+        {/* Type toggle */}
+        <div style={{ display: "flex", background: T.elevated, borderRadius: 12, padding: 4, marginBottom: 18, gap: 4 }}>
+          {[{ id: "expense", label: "Expense", icon: "budget", color: T.amber }, { id: "income", label: "Income", icon: "trend-up", color: T.teal }].map(opt => (
+            <button key={opt.id} onClick={() => switchType(opt.id)}
+              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 0", borderRadius: 9, background: entryType === opt.id ? opt.color : "transparent", border: "none", color: entryType === opt.id ? "#0A0A0F" : T.textMuted, fontSize: 13, fontWeight: entryType === opt.id ? 700 : 500, cursor: "pointer", fontFamily: "inherit", transition: "all 0.15s" }}>
+              <Icon name={opt.icon} size={14} color={entryType === opt.id ? "#0A0A0F" : T.textDim} />
+              {opt.label}
+            </button>
+          ))}
         </div>
 
-        {/* Category chips */}
+        {/* Amount — big centered input */}
+        <div style={{ textAlign: "center", marginBottom: 18 }}>
+          <div style={{ fontSize: 10, color: T.textMuted, fontWeight: 600, letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 8 }}>Amount (CHF)</div>
+          <input type="number" step="0.05" min="0" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" autoFocus
+            style={{ width: "100%", background: T.elevated, border: `2px solid ${amount ? accentColor + "88" : T.border}`, borderRadius: 14, padding: "14px 0", fontSize: 32, fontWeight: 800, color: accentColor, fontFamily: T.fontMono, outline: "none", textAlign: "center", boxSizing: "border-box", transition: "border-color 0.15s" }} />
+        </div>
+
+        {/* Category */}
+        <div style={{ fontSize: 10, color: T.textMuted, fontWeight: 600, letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 8 }}>Category</div>
         <div style={{ display: "grid", gridTemplateColumns: isIncome ? "1fr 1fr" : "repeat(3,1fr)", gap: 8, marginBottom: 14 }}>
           {cats.map(c => (
-            <button key={c.id} onClick={() => setCat(c.id)} style={{ padding: "10px 6px", borderRadius: 10, background: cat === c.id ? c.color + "22" : T.elevated, border: `1px solid ${cat === c.id ? c.color + "55" : T.border}`, color: cat === c.id ? c.color : T.textMuted, fontSize: 11, fontWeight: cat === c.id ? 700 : 500, cursor: "pointer", fontFamily: "inherit", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-              <Icon name={c.icon} size={16} color={cat === c.id ? c.color : T.textDim} />
+            <button key={c.id} onClick={() => setCat(c.id)}
+              style={{ padding: "10px 6px", borderRadius: 10, background: cat === c.id ? `${c.color}22` : T.elevated, border: `1.5px solid ${cat === c.id ? c.color : T.border}`, color: cat === c.id ? c.color : T.textMuted, fontSize: 11, fontWeight: cat === c.id ? 700 : 500, cursor: "pointer", fontFamily: "inherit", display: "flex", flexDirection: "column", alignItems: "center", gap: 5, transition: "all 0.15s" }}>
+              <Icon name={c.icon} size={17} color={cat === c.id ? c.color : T.textDim} />
               {c.label}
             </button>
           ))}
         </div>
 
-        {/* Amount */}
-        <input type="number" step="0.05" min="0" value={amount} onChange={e => setAmount(e.target.value)} placeholder="CHF 0.00"
-          style={{ width: "100%", background: T.elevated, border: `1px solid ${T.border}`, borderRadius: T.rInput, padding: "12px 14px", fontSize: 24, fontWeight: 700, color: T.text, fontFamily: T.fontMono, outline: "none", marginBottom: 10, boxSizing: "border-box", textAlign: "center" }} />
-
         {/* Description */}
-        <input type="text" value={desc} onChange={e => setDesc(e.target.value)} placeholder={isIncome ? "Source (e.g. Monthly salary)" : "Description (optional)"}
-          style={{ width: "100%", background: T.elevated, border: `1px solid ${T.border}`, borderRadius: T.rInput, padding: "10px 14px", fontSize: 13, color: T.text, fontFamily: "inherit", outline: "none", marginBottom: 8, boxSizing: "border-box" }} />
+        <input type="text" value={desc} onChange={e => setDesc(e.target.value)}
+          placeholder={isIncome ? "Source (e.g. Monthly salary, Freelance)" : "Description (e.g. Lidl groceries)"}
+          style={{ width: "100%", background: T.elevated, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 14px", fontSize: 13, color: T.text, fontFamily: "inherit", outline: "none", marginBottom: 8, boxSizing: "border-box" }} />
 
-        {/* Bank account (income mode) */}
+        {/* Bank account (income only) */}
         {isIncome && (
-          <input type="text" value={account} onChange={e => setAccount(e.target.value)} placeholder="Bank account (e.g. ZKB, IBAN …)"
-            style={{ width: "100%", background: T.elevated, border: `1px solid ${T.border}`, borderRadius: T.rInput, padding: "10px 14px", fontSize: 13, color: T.text, fontFamily: "inherit", outline: "none", marginBottom: 8, boxSizing: "border-box" }} />
+          <input type="text" value={account} onChange={e => setAccount(e.target.value)}
+            placeholder="Bank / account (e.g. ZKB, Revolut)"
+            style={{ width: "100%", background: T.elevated, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 14px", fontSize: 13, color: T.text, fontFamily: "inherit", outline: "none", marginBottom: 8, boxSizing: "border-box" }} />
         )}
 
-        <div style={{ height: 8 }} />
-        <button onClick={handleSave} disabled={saving || !amount}
-          style={{ width: "100%", padding: "13px 0", background: accentColor, color: "#0A0A0F", border: "none", borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: saving || !amount ? "not-allowed" : "pointer", opacity: saving || !amount ? 0.5 : 1, fontFamily: "inherit" }}>
+        <div style={{ height: 12 }} />
+        <button onClick={handleSave} disabled={saving || !amount || parseFloat(amount) <= 0}
+          style={{ width: "100%", padding: "14px 0", background: !amount || parseFloat(amount) <= 0 ? T.elevated : accentColor, color: !amount || parseFloat(amount) <= 0 ? T.textMuted : "#0A0A0F", border: "none", borderRadius: 13, fontSize: 15, fontWeight: 700, cursor: saving || !amount ? "not-allowed" : "pointer", fontFamily: "inherit", transition: "background 0.15s" }}>
           {saving ? "Saving…" : isIncome ? "Add Income" : "Add Expense"}
         </button>
       </div>
@@ -236,42 +260,10 @@ function AddEntrySheet({ onClose, onAdded, type = "expense" }) {
   );
 }
 
-// Speed dial for add expense vs income
-function BudgetFAB({ onAddExpense, onAddIncome }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div style={{ position: "absolute", right: 20, bottom: 92, zIndex: 20, display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-      {open && (
-        <>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: T.text, background: T.elevated, border: `1px solid ${T.border}`, borderRadius: 8, padding: "4px 10px", whiteSpace: "nowrap" }}>Add Income</span>
-            <button onClick={() => { setOpen(false); onAddIncome(); }}
-              style={{ width: 44, height: 44, borderRadius: 9999, background: `${T.teal}22`, border: `1px solid ${T.teal}44`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Icon name="trend-up" size={18} color={T.teal} />
-            </button>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: T.text, background: T.elevated, border: `1px solid ${T.border}`, borderRadius: 8, padding: "4px 10px", whiteSpace: "nowrap" }}>Add Expense</span>
-            <button onClick={() => { setOpen(false); onAddExpense(); }}
-              style={{ width: 44, height: 44, borderRadius: 9999, background: `${T.amber}22`, border: `1px solid ${T.amber}44`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Icon name="budget" size={18} color={T.amber} />
-            </button>
-          </div>
-        </>
-      )}
-      <button onClick={() => setOpen(o => !o)}
-        style={{ width: 56, height: 56, borderRadius: 9999, background: T.amber, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 8px 24px ${T.amber}55`, transform: open ? "rotate(45deg)" : "none", transition: "transform 0.2s cubic-bezier(.34,1.56,.64,1)" }}>
-        <Icon name="plus" size={24} color="#0A0A0F" strokeWidth={2.4} />
-      </button>
-    </div>
-  );
-}
-
 export default function BudgetPage({ profile, onProfile }) {
   const [entries, setEntries] = useState(MOCK_ENTRIES);
   const [activeDonut, setActiveDonut] = useState(null);
-  const [showAddExpense, setShowAddExpense] = useState(false);
-  const [showAddIncome, setShowAddIncome] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState(null);
 
@@ -319,14 +311,9 @@ export default function BudgetPage({ profile, onProfile }) {
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden", background: T.bg, position: "relative" }}>
       <PageHeader
         title="Budget"
-        subtitle="April · 20 days remain"
+        subtitle={`${new Date().toLocaleString("default",{month:"long"})} · ${new Date(new Date().getFullYear(),new Date().getMonth()+1,0).getDate()-new Date().getDate()} days remain`}
         profile={profile}
         onProfile={onProfile}
-        trailing={
-          <button style={{ width: 32, height: 32, borderRadius: 9999, background: T.elevated, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: T.textMuted }}>
-            <Icon name="settings" size={16} />
-          </button>
-        }
       />
 
       <PageScroll>
@@ -453,9 +440,8 @@ export default function BudgetPage({ profile, onProfile }) {
         </div>
       </PageScroll>
 
-      <BudgetFAB onAddExpense={() => setShowAddExpense(true)} onAddIncome={() => setShowAddIncome(true)} />
-      {showAddExpense && <AddEntrySheet type="expense" onClose={() => setShowAddExpense(false)} onAdded={reload} />}
-      {showAddIncome && <AddEntrySheet type="income" onClose={() => setShowAddIncome(false)} onAdded={reload} />}
+      <Fab onClick={() => setShowAdd(true)} icon="plus" color={T.amber} />
+      {showAdd && <AddEntrySheet onClose={() => setShowAdd(false)} onAdded={reload} />}
       {selectedCategory && (
         <CategoryDetailPage
           category={selectedCategory}
