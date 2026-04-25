@@ -209,9 +209,16 @@ function AddMealSheet({ groupName, templates, onRefresh, onClose }) {
     if (!aiResult) return;
     setAiLogging(true);
     try {
-      await mealsAPI.logManual({ name:aiName||aiText, meal_type:aiMealType, calories:aiResult.calories, protein_g:aiResult.protein_g, carbs_g:aiResult.carbs_g, fat_g:aiResult.fat_g });
+      await mealsAPI.logMeal({
+        name: aiName || aiText.slice(0, 60),
+        meal_type: aiMealType,
+        calories: aiResult.calories || 0,
+        protein_g: aiResult.protein_g || 0,
+        carbs_g: aiResult.carbs_g || 0,
+        fat_g: aiResult.fat_g || 0,
+      });
       onRefresh?.(); onClose();
-    } catch(e) { alert(e.message||"Log failed"); }
+    } catch(e) { alert(e.message || "Log failed"); }
     setAiLogging(false);
   }
 
@@ -229,7 +236,7 @@ function AddMealSheet({ groupName, templates, onRefresh, onClose }) {
     setMLogging(true);
     try {
       const payload = { name:mName, meal_type:mMealType, calories:Number(mCal)||0, protein_g:Number(mProt)||0, carbs_g:Number(mCarb)||0, fat_g:Number(mFat)||0 };
-      await mealsAPI.logManual(payload);
+      await mealsAPI.logMeal(payload);
       if (mSaveTemplate) await mealsAPI.saveTemplate(payload);
       onRefresh?.(); onClose();
     } catch(e) { alert(e.message||"Log failed"); }
