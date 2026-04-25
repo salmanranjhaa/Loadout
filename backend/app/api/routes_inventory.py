@@ -1,3 +1,4 @@
+from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -18,6 +19,7 @@ class InventoryItemCreate(BaseModel):
     quantity: Optional[float] = None
     unit: Optional[str] = None
     category: Optional[str] = "other"
+    expiry_date: Optional[date] = None
 
 
 class InventoryItemUpdate(BaseModel):
@@ -25,6 +27,7 @@ class InventoryItemUpdate(BaseModel):
     quantity: Optional[float] = None
     unit: Optional[str] = None
     category: Optional[str] = None
+    expiry_date: Optional[date] = None
 
 
 @router.get("/")
@@ -55,6 +58,7 @@ async def add_inventory_item(
         quantity=item.quantity,
         unit=item.unit,
         category=item.category if item.category in VALID_CATEGORIES else "other",
+        expiry_date=item.expiry_date,
     )
     db.add(new_item)
     await db.commit()
@@ -88,6 +92,8 @@ async def update_inventory_item(
         item.unit = updates.unit
     if updates.category is not None:
         item.category = updates.category if updates.category in VALID_CATEGORIES else "other"
+    if updates.expiry_date is not None:
+        item.expiry_date = updates.expiry_date
 
     await db.commit()
     await db.refresh(item)
@@ -115,6 +121,12 @@ async def delete_inventory_item(
     return {"deleted": item_id}
 
 
+def _days_until_expiry(expiry: Optional[date]) -> Optional[int]:
+    if expiry is None:
+        return None
+    return (expiry - date.today()).days
+
+
 def _fmt(i: InventoryItem) -> dict:
     return {
         "id": i.id,
@@ -122,4 +134,6 @@ def _fmt(i: InventoryItem) -> dict:
         "quantity": i.quantity,
         "unit": i.unit,
         "category": i.category or "other",
+        "expiry_date": i.expiry_date.isoformat() if i.expiry_date else None,
+        "days_until_expiry": _days_until_expiry(i.expiry_date),
     }

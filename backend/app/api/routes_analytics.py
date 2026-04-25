@@ -244,6 +244,35 @@ async def get_dashboard(
     }
 
 
+@router.get("/adherence")
+async def get_meal_adherence(
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """I return weekly meal adherence percentages (Mon–Sun) as an array of 7 floats (0.0–100.0).
+    Adherence is computed per day as min(meals_logged / 3, 1.0) * 100, treating 3 meals as 100%."""
+    today = date.today()
+    # I align to the current Monday
+    week_start = today - timedelta(days=today.weekday())
+
+    result = await db.execute(
+        select(MealLog)
+        .where(MealLog.user_id == user["sub"], MealLog.date >= week_start)
+    )
+    meals = result.scalars().all()
+
+    # I count meals per weekday index (0=Monday … 6=Sunday)
+    counts = [0] * 7
+    for m in meals:
+        day_idx = (m.date - week_start).days
+        if 0 <= day_idx < 7:
+            counts[day_idx] += 1
+
+    # I cap adherence at 100% and treat 3+ meals as full adherence
+    adherence = [round(min(c / 3.0, 1.0) * 100, 1) for c in counts]
+    return {"adherence": adherence, "week_start": str(week_start)}
+
+
 def _calc_trend(logs: list[WeightLog]) -> dict:
     """I calculate the weight trend (weekly average change)."""
     if len(logs) < 2:

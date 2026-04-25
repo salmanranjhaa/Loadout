@@ -2,12 +2,19 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
-from typing import Optional
+from typing import Any, List, Optional
 from app.core.database import get_db
 from app.core.auth import get_current_user
 from app.models.user import User
 
 router = APIRouter(prefix="/user", tags=["user"])
+
+
+class SupplementItem(BaseModel):
+    name: str
+    dose: str
+    times: List[str]  # HH:MM strings
+    unit: str
 
 
 class UserProfileUpdate(BaseModel):
@@ -21,6 +28,7 @@ class UserProfileUpdate(BaseModel):
     daily_carb_target: Optional[int] = None
     daily_fat_target: Optional[int] = None
     preferred_currency: Optional[str] = None
+    supplements: Optional[List[SupplementItem]] = None
 
 
 def _normalize_currency(code: Optional[str]) -> Optional[str]:
@@ -101,6 +109,38 @@ async def update_profile(
     if "daily_fat_target" in fields_set: u.daily_fat_target = body.daily_fat_target
     if "preferred_currency" in fields_set:
         u.preferred_currency = _normalize_currency(body.preferred_currency) or "CHF"
+    if "supplements" in fields_set and body.supplements is not None:
+        u.supplements = [s.model_dump() for s in body.supplements]
     await db.commit()
     await db.refresh(u)
     return {"updated": True, "username": u.username}
+
+
+@router.get("/supplements")
+async def get_supplements(
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """I return the current user's supplement list."""
+    result = await db.execute(select(User).where(User.id == user["sub"]))
+    u = result.scalar_one_or_none()
+    if not u:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"supplements": u.supplements or []}
+
+
+@router.put("/supplements")
+async def update_supplements(
+    body: List[SupplementItem],
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """I replace the user's supplement list with a new structured list.
+    Each supplement: {name, dose, times: [HH:MM], unit}."""
+    result = await db.execute(select(User).where(User.id == user["sub"]))
+    u = result.scalar_one_or_none()
+    if not u:
+        raise HTTPException(status_code=404, detail="User not found")
+    u.supplements = [s.model_dump() for s in body]
+    await db.commit()
+    return {"updated": True, "count": len(body)}
