@@ -1,7 +1,11 @@
+import asyncio
 import json
 import secrets
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from urllib.parse import urlencode
+import google.auth.transport.requests as google_requests
+import google.oauth2.id_token
 import httpx
 from jose import JWTError, jwt
 from app.core.config import get_settings
@@ -123,6 +127,33 @@ def token_expiry_from_google_response(token_data: dict) -> datetime | None:
         return datetime.now(timezone.utc) + timedelta(seconds=int(expires_in))
     except (TypeError, ValueError):
         return None
+
+
+async def verify_google_id_token(token: str) -> dict:
+    """Verify a Google ID token from native Sign-In and return its verified claims.
+
+    The aud claim in tokens produced by @codetrix-studio/capacitor-google-auth
+    (serverClientId = web client) is the web OAuth client ID, so we verify
+    against GOOGLE_CLIENT_ID.  Runs the synchronous google-auth call in a
+    thread-pool executor to avoid blocking the event loop.
+    """
+    loop = asyncio.get_event_loop()
+    request = google_requests.Request()
+    try:
+        idinfo = await loop.run_in_executor(
+            None,
+            partial(
+                google.oauth2.id_token.verify_oauth2_token,
+                token,
+                request,
+                settings.GOOGLE_CLIENT_ID,
+            ),
+        )
+    except Exception as exc:
+        raise ValueError(f"Invalid Google ID token: {exc}") from exc
+    if idinfo.get("iss") not in {"accounts.google.com", "https://accounts.google.com"}:
+        raise ValueError("Google ID token has unexpected issuer")
+    return idinfo
 
 
 def scopes_to_string(token_data: dict) -> str:

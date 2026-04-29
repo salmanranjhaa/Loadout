@@ -27,6 +27,7 @@ from app.services.google_oauth import (
     fetch_google_userinfo,
     scopes_to_string,
     token_expiry_from_google_response,
+    verify_google_id_token,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -66,6 +67,11 @@ class TokenResponse(BaseModel):
 
 class GoogleAuthUrlResponse(BaseModel):
     auth_url: str
+
+
+class GoogleIdTokenRequest(BaseModel):
+    id_token: str
+    mode: str = Field(pattern="^(login|signup)$")
 
 
 def _validate_origin(origin: str) -> str:
@@ -235,6 +241,66 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
+    return _token_response(user)
+
+
+@router.post("/google/id-token", response_model=TokenResponse)
+async def google_id_token_login(body: GoogleIdTokenRequest, db: AsyncSession = Depends(get_db)):
+    """Accept a Google ID token from native Sign-In, verify it, and return app JWT tokens.
+
+    Used by the Android/iOS apps via @codetrix-studio/capacitor-google-auth.
+    The web popup/redirect flow continues to use /google/login-url + /google/callback.
+    """
+    try:
+        claims = await verify_google_id_token(body.id_token)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
+
+    google_sub = (claims.get("sub") or "").strip()
+    google_email = (claims.get("email") or "").strip().lower()
+    email_verified = bool(claims.get("email_verified"))
+
+    if not google_sub or not google_email:
+        raise HTTPException(status_code=400, detail="Google did not return required profile fields")
+    if not email_verified:
+        raise HTTPException(status_code=400, detail="Google email is not verified")
+
+    if body.mode == "login":
+        user_result = await db.execute(select(User).where(User.google_sub == google_sub))
+        user = user_result.scalar_one_or_none()
+        if not user:
+            by_email = await db.execute(select(User).where(func.lower(User.email) == google_email.lower()))
+            user = by_email.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="No account found for this Google email. Please sign up first.")
+        if not user.is_active:
+            raise HTTPException(status_code=403, detail="Account is disabled")
+        user.google_sub = google_sub
+        await db.commit()
+        await db.refresh(user)
+        return _token_response(user)
+
+    # mode == "signup"
+    existing = await db.execute(select(User).where(User.google_sub == google_sub))
+    user = existing.scalar_one_or_none()
+    if not user:
+        by_email = await db.execute(select(User).where(func.lower(User.email) == google_email.lower()))
+        user = by_email.scalar_one_or_none()
+    if user:
+        raise HTTPException(status_code=409, detail="Account already exists. Please sign in instead.")
+
+    generated_username = await _generate_unique_username(db, google_email)
+    user = User(
+        username=generated_username,
+        email=google_email,
+        hashed_password=hash_password(secrets.token_urlsafe(32)),
+        role="user",
+        is_active=True,
+        google_sub=google_sub,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
     return _token_response(user)
 
 

@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "440251787404",
+    "project_id": "deployed-stuff",
+    "storage_bucket": "deployed-stuff.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "REPLACE_WITH_MOBILESDK_APP_ID_FROM_GCP_CONSOLE",
+        "android_client_info": {
+          "package_name": "com.antigravity.lifeplan"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "440251787404-ue6rqph9tddrr0pk3tje0tcpj693fum9.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.antigravity.lifeplan",
+            "certificate_hash": "REPLACE_WITH_SHA1_FROM_GCP_CONSOLE"
+          }
+        },
+        {
+          "client_id": "440251787404-8vb92pgviqr638ole9ao9272l7hae211.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "REPLACE_WITH_ANDROID_API_KEY_FROM_GCP_CONSOLE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "440251787404-8vb92pgviqr638ole9ao9272l7hae211.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

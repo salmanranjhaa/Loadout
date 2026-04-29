@@ -1,18 +1,12 @@
-loadedout.online {
-    # Proxy API requests to the FastAPI backend
+(routes) {
     handle /api/* {
         reverse_proxy backend:8000
     }
-
-    # Proxy MCP server, forwarding the full path so the server receives /mcp/sse and /mcp/messages/
     handle /mcp/* {
         reverse_proxy mcp:8003 {
-            # I disable response buffering so SSE events stream through immediately
             flush_interval -1
         }
     }
-
-    # Serve the React SPA (fallback)
     handle {
         root * /usr/share/caddy
         try_files {path} /index.html
@@ -20,3 +14,6 @@ loadedout.online {
     }
 }
 
+loadedout.online {
+    import routes
+}

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { authAPI, getGoogleOAuthOrigin, isNativePlatform, runGoogleAuthFlow, setToken } from "../utils/api";
+import { authAPI, getGoogleOAuthOrigin, googleNativeSignIn, isNativePlatform, runGoogleAuthFlow, setToken } from "../utils/api";
 import { T } from "../design/tokens";
 import { Icon } from "../design/icons";
 
@@ -52,12 +52,19 @@ export default function LoginPage({ onLogin }) {
     setError("");
     setGoogleLoading(true);
     try {
-      const native = isNativePlatform();
       const googleMode = mode === "signup" ? "signup" : "login";
-      const { auth_url } = await authAPI.getGoogleLoginUrl(getGoogleOAuthOrigin(), native, googleMode);
-      const payload = await runGoogleAuthFlow(auth_url, googleMode);
-      if (!payload.access_token || !payload.refresh_token) throw new Error("Google auth did not return tokens");
-      setToken(payload.access_token, payload.refresh_token);
+      if (isNativePlatform()) {
+        // Native Android/iOS: use the Google Sign-In SDK — no browser redirect needed
+        const { idToken } = await googleNativeSignIn();
+        const data = await authAPI.googleIdToken(idToken, googleMode);
+        setToken(data.access_token, data.refresh_token);
+      } else {
+        // Web: keep the existing popup/redirect flow
+        const { auth_url } = await authAPI.getGoogleLoginUrl(getGoogleOAuthOrigin(), false, googleMode);
+        const payload = await runGoogleAuthFlow(auth_url, googleMode);
+        if (!payload.access_token || !payload.refresh_token) throw new Error("Google auth did not return tokens");
+        setToken(payload.access_token, payload.refresh_token);
+      }
       onLogin();
     } catch (err) {
       setError(err.message || "Google authentication failed");

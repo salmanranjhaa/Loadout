@@ -1,6 +1,7 @@
 import { Capacitor } from "@capacitor/core";
 import { App as CapacitorApp } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
+import { GoogleAuth } from "@codetrix-studio/capacitor-google-auth";
 
 // I handle all API communication with the FastAPI backend
 const API_BASE = import.meta.env.VITE_API_URL || "/api/v1";
@@ -101,7 +102,20 @@ export const authAPI = {
     request(`/auth/google/login-url?origin=${encodeURIComponent(origin)}${native ? "&native=1" : ""}&mode=${encodeURIComponent(mode)}`),
   getGoogleConnectUrl: (origin, native = false) =>
     request(`/auth/google/connect-url?origin=${encodeURIComponent(origin)}${native ? "&native=1" : ""}`),
+  googleIdToken: (id_token, mode) =>
+    request("/auth/google/id-token", {
+      method: "POST",
+      body: JSON.stringify({ id_token, mode }),
+    }),
 };
+
+export async function googleNativeSignIn() {
+  await GoogleAuth.initialize();
+  const user = await GoogleAuth.signIn();
+  const idToken = user?.authentication?.idToken;
+  if (!idToken) throw new Error("Google Sign-In did not return an ID token");
+  return { idToken };
+}
 
 export const scheduleAPI = {
   getAll: (day, targetDate) => {
