@@ -17,3 +17,7 @@
 loadedout.online {
     import routes
 }
+
+www.loadedout.online {
+    redir https://loadedout.online{uri} permanent
+}

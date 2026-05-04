@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 settings = get_settings()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 ALGORITHM = "HS256"
 
@@ -58,7 +58,13 @@ def decode_token(token: str, expected_type: str = "access") -> dict:
         )
 
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+async def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> dict:
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     payload = decode_token(credentials.credentials, expected_type="access")
     if "sub" in payload:
         payload["sub"] = int(payload["sub"])
