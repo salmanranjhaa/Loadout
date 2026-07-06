@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from app.core.database import get_db
 from app.core.auth import get_current_user
@@ -346,15 +346,21 @@ Respond with a JSON array of meal suggestions using the save_meal_template forma
     }
 
 
+class MacroEstimateRequest(BaseModel):
+    # Body, not query param: descriptions can be long (recipe importer pastes
+    # whole ingredient lists) and query strings end up in access logs.
+    description: str = Field(min_length=2, max_length=2000)
+
+
 @router.post("/estimate-macros")
 @limiter.limit("30/minute")
 async def estimate_macros(
     request: Request,
-    description: str,
+    body: MacroEstimateRequest,
     _user: dict = Depends(get_current_user),
 ):
     """I estimate macros from a free text food description using Gemini."""
-    result = await calculate_macros_from_description(description)
+    result = await calculate_macros_from_description(body.description)
     return result
 
 

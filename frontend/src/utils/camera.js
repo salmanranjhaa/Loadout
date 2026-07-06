@@ -42,18 +42,23 @@ function pickFileViaInput(capture) {
     input.accept = "image/*";
     if (capture) input.capture = "environment";
     input.style.display = "none";
-    // `onchange` never fires if the user cancels; we resolve null on focus-back
-    // so callers don't hang forever waiting on a dismissed picker.
     let settled = false;
     const done = (val) => { if (!settled) { settled = true; cleanup(); resolve(val); } };
     const onChange = () => done(input.files?.[0] || null);
-    const onFocus = () => setTimeout(() => done(input.files?.[0] || null), 500);
+    const onCancel = () => done(null);
+    // Focus-back is only a last-resort fallback for browsers without the
+    // `cancel` event. It must wait long enough for a slow `change` to land —
+    // on iOS Safari focus returns BEFORE the picked file is delivered, and a
+    // short timer here silently discards the user's photo.
+    const onFocus = () => setTimeout(() => done(input.files?.[0] || null), 5000);
     function cleanup() {
       input.removeEventListener("change", onChange);
+      input.removeEventListener("cancel", onCancel);
       window.removeEventListener("focus", onFocus);
       input.remove();
     }
     input.addEventListener("change", onChange);
+    input.addEventListener("cancel", onCancel);
     window.addEventListener("focus", onFocus, { once: true });
     document.body.appendChild(input);
     input.click();
@@ -91,7 +96,8 @@ export async function pickImage({ source = "prompt" } = {}) {
         promptLabelPicture: "Take Photo",
       });
       if (!photo?.base64String) return null;
-      const fmt = photo.format || "jpeg";
+      let fmt = (photo.format || "jpeg").toLowerCase();
+      if (fmt === "jpg") fmt = "jpeg";
       return {
         base64: photo.base64String,
         dataUrl: `data:image/${fmt};base64,${photo.base64String}`,
@@ -128,8 +134,10 @@ export async function scanBarcodeNative() {
     throw new Error("Camera permission denied — enable it in app settings");
   }
 
-  // Product barcodes only — restricting formats makes the scan lock on faster.
-  const formats = ["Ean13", "Ean8", "UpcA", "UpcE", "Code128", "Code39", "Itf"];
+  // Retail product codes only (all-numeric). Code128/Code39/ITF are dropped:
+  // they can carry alphanumeric values the barcode lookup endpoint rejects,
+  // and restricting formats also makes the scan lock on faster.
+  const formats = ["Ean13", "Ean8", "UpcA", "UpcE"];
   try {
     const { barcodes } = await BarcodeScanner.scan({ formats });
     return barcodes?.[0]?.rawValue || null; // empty array = user dismissed

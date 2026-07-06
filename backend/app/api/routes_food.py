@@ -23,7 +23,7 @@ router = APIRouter(prefix="/food", tags=["food"])
 # hit carries the same product_name/brands/code/nutriments fields we normalize.
 OFF_SEARCH_URL = "https://search.openfoodfacts.org/search"
 # Barcode lookups still use the per-product v2 API (works fine).
-OFF_FIELDS = "product_name,brands,nutriments,serving_quantity,code"
+OFF_FIELDS = "product_name,brands,nutriments,serving_quantity,product_quantity,code"
 
 # Tiny in-memory cache — food searches repeat constantly ("chicken", "rice"…)
 _cache: dict[str, tuple[float, list]] = {}
@@ -36,6 +36,16 @@ def _round1(value) -> Optional[float]:
         return round(float(value), 1)
     except (TypeError, ValueError):
         return None
+
+
+def _grams(value) -> Optional[float]:
+    """Parse an OFF quantity field (number or numeric string) into grams,
+    rejecting junk values outside a plausible 1g–5kg range."""
+    try:
+        g = float(value)
+    except (TypeError, ValueError):
+        return None
+    return round(g, 1) if 1 <= g <= 5000 else None
 
 
 def _first_brand(brands) -> Optional[str]:
@@ -62,6 +72,10 @@ def _normalize_product(product: dict) -> Optional[dict]:
         "fat_g": _round1(nutriments.get("fat_100g")) or 0,
         "fiber_g": _round1(nutriments.get("fiber_100g")),
         "serving_g": 100,
+        # Real-world portion hints so the client can offer "1 serving" /
+        # "whole pack" instead of defaulting everyone to 100g.
+        "serving_size_g": _grams(product.get("serving_quantity")),
+        "package_size_g": _grams(product.get("product_quantity")),
         "source": "openfoodfacts",
         "barcode": product.get("code"),
     }

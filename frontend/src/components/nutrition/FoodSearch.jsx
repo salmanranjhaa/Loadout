@@ -54,16 +54,58 @@ const FOOD_DB = [
   { name: "Watermelon",              calories: 30,  protein_g: 0.6,  carbs_g: 8,    fat_g: 0.2,  serving_g: 100 },
 ];
 
+// ── Shared: scale a macro set by a multiplier ─────────────────────────────────
+function scaleMacros(m, factor) {
+  return {
+    calories:  Math.round((m.calories  || 0) * factor),
+    protein_g: Math.round((m.protein_g || 0) * factor * 10) / 10,
+    carbs_g:   Math.round((m.carbs_g   || 0) * factor * 10) / 10,
+    fat_g:     Math.round((m.fat_g     || 0) * factor * 10) / 10,
+  };
+}
+
+// ── Shared: "how much of this did you eat" row for Photo/AI estimates ─────────
+const SCALE_OPTIONS = [[0.5, "½"], [0.75, "¾"], [1, "All"], [1.5, "1.5×"], [2, "2×"]];
+
+function ScaleRow({ scale, onChange }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10, color: T.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 5 }}>
+        Portion eaten
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        {SCALE_OPTIONS.map(([v, label]) => (
+          <button key={v} onClick={() => onChange(v)}
+            style={{ flex: 1, padding: "6px 0", borderRadius: 7, background: scale === v ? T.teal : T.elevated, color: scale === v ? "#0A0A0F" : T.text, border: `1px solid ${scale === v ? T.teal : T.border}`, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Shared: food detail / portion selector ────────────────────────────────────
 function PortionSelector({ food, onAdd, onBack }) {
-  const [portion, setPortion] = useState(String(food.serving_g || 100));
-  const ratio  = parseFloat(portion) / (food.serving_g || 100);
-  const scaled = {
-    calories:  Math.round((food.calories  || 0) * ratio),
-    protein_g: Math.round((food.protein_g || 0) * ratio * 10) / 10,
-    carbs_g:   Math.round((food.carbs_g   || 0) * ratio * 10) / 10,
-    fat_g:     Math.round((food.fat_g     || 0) * ratio * 10) / 10,
-  };
+  const base = food.serving_g || 100;
+  // Real serving size (from the barcode/product data) beats the 100g default
+  const [portion, setPortion] = useState(String(food.serving_size_g || base));
+  const grams = parseFloat(portion);
+  const valid = Number.isFinite(grams) && grams > 0;
+  const ratio = valid ? grams / base : 0;
+  const scaled = scaleMacros(food, ratio);
+
+  // Quick picks: real serving and whole pack when known, sensible grams otherwise
+  const quickPicks = [];
+  if (food.serving_size_g) quickPicks.push({ g: food.serving_size_g, label: `Serving ${food.serving_size_g}g` });
+  for (const g of [50, 100, 150, 200]) {
+    if (quickPicks.length >= 4) break;
+    if (!quickPicks.some((p) => p.g === g) && g !== food.package_size_g) quickPicks.push({ g, label: `${g}` });
+  }
+  if (food.package_size_g && !quickPicks.some((p) => p.g === food.package_size_g)) {
+    quickPicks.splice(3);
+    quickPicks.push({ g: food.package_size_g, label: `Pack ${food.package_size_g}g` });
+  }
 
   return (
     <div style={{ background: T.surface, border: `1px solid ${T.teal}44`, borderRadius: 14, padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -88,16 +130,16 @@ function PortionSelector({ food, onAdd, onBack }) {
       <div>
         <div style={{ fontSize: 10, color: T.textDim, marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4 }}>Amount (g)</div>
         <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-          {[50, 100, 150, 200].map((g) => (
+          {quickPicks.map(({ g, label }) => (
             <button key={g} onClick={() => setPortion(String(g))}
-              style={{ flex: 1, padding: "5px 0", borderRadius: 7, background: portion === String(g) ? T.teal : T.elevated, color: portion === String(g) ? "#0A0A0F" : T.text, border: `1px solid ${portion === String(g) ? T.teal : T.border}`, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
-              {g}
+              style={{ flex: 1, padding: "5px 2px", borderRadius: 7, background: grams === g ? T.teal : T.elevated, color: grams === g ? "#0A0A0F" : T.text, border: `1px solid ${grams === g ? T.teal : T.border}`, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+              {label}
             </button>
           ))}
         </div>
         <input
           type="number" inputMode="numeric" value={portion} onChange={(e) => setPortion(e.target.value)} min={1}
-          style={{ width: "100%", background: T.elevated, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 12px", color: T.text, fontSize: 14, fontFamily: T.fontMono, outline: "none", boxSizing: "border-box", textAlign: "center" }}
+          style={{ width: "100%", background: T.elevated, border: `1px solid ${valid ? T.border : T.negative}`, borderRadius: 8, padding: "8px 12px", color: T.text, fontSize: 14, fontFamily: T.fontMono, outline: "none", boxSizing: "border-box", textAlign: "center" }}
         />
       </div>
 
@@ -106,8 +148,8 @@ function PortionSelector({ food, onAdd, onBack }) {
           style={{ flex: 1, padding: "9px 0", background: T.elevated, border: `1px solid ${T.border}`, borderRadius: 9, color: T.textMuted, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>
           Back
         </button>
-        <button onClick={() => onAdd({ ...food, portion_g: parseFloat(portion), ...scaled })}
-          style={{ flex: 2, padding: "9px 0", background: T.teal, color: "#0A0A0F", border: "none", borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+        <button onClick={() => valid && onAdd({ ...food, portion_g: grams, ...scaled })} disabled={!valid}
+          style={{ flex: 2, padding: "9px 0", background: valid ? T.teal : T.elevated, color: valid ? "#0A0A0F" : T.textMuted, border: "none", borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: valid ? "pointer" : "default", fontFamily: "inherit" }}>
           Add to Meal
         </button>
       </div>
@@ -172,15 +214,18 @@ function DatabaseTab({ onSelect }) {
     return <PortionSelector food={selected} onBack={() => setSelected(null)} onAdd={(food) => { onSelect(food); setSelected(null); setQuery(""); }} />;
   }
 
-  const localNames = new Set(filtered.map((f) => f.name.toLowerCase()));
-  const online = onlineResults.filter((f) => !localNames.has(f.name.toLowerCase()));
+  // Dedupe online hits against the ENTIRE built-in list (not just the visible
+  // slice), normalized so "Chicken Breast" and "chicken breast, raw" collapse.
+  const normName = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const localNames = new Set(FOOD_DB.map((f) => normName(f.name)));
+  const online = onlineResults.filter((f) => !localNames.has(normName(f.name)));
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <div style={{ position: "relative" }}>
         <Icon name="search" size={14} color={T.textDim} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
         <input
-          autoFocus value={query} onChange={(e) => setQuery(e.target.value)}
+          value={query} onChange={(e) => setQuery(e.target.value)}
           placeholder="Search any food or product…"
           style={{ width: "100%", background: T.elevated, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px 10px 36px", color: T.text, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}
         />
@@ -213,7 +258,6 @@ function DatabaseTab({ onSelect }) {
 function TemplatesTab({ onSelect }) {
   const [templates, setTemplates] = useState([]);
   const [loading,   setLoading]   = useState(true);
-  const [selected,  setSelected]  = useState(null);
   const [query,     setQuery]     = useState("");
 
   useEffect(() => {
@@ -228,18 +272,6 @@ function TemplatesTab({ onSelect }) {
     const q = query.toLowerCase();
     return templates.filter((t) => (t.name || "").toLowerCase().includes(q));
   }, [templates, query]);
-
-  if (selected) {
-    const food = {
-      name:      selected.name,
-      calories:  selected.calories || 0,
-      protein_g: selected.protein_g || 0,
-      carbs_g:   selected.carbs_g   || 0,
-      fat_g:     selected.fat_g     || 0,
-      serving_g: 1,
-    };
-    return <PortionSelector food={{ ...food, serving_g: 100 }} onBack={() => setSelected(null)} onAdd={(f) => { onSelect({ name: food.name, calories: food.calories, protein_g: food.protein_g, carbs_g: food.carbs_g, fat_g: food.fat_g }); setSelected(null); }} />;
-  }
 
   if (loading) {
     return <div style={{ textAlign: "center", padding: "32px 0", color: T.textDim, fontSize: 13 }}>Loading templates…</div>;
@@ -294,11 +326,13 @@ function AIEstimateTab({ onSelect }) {
   const [result,     setResult]     = useState(null);
   const [mealName,   setMealName]   = useState("");
   const [saveAsTemplate, setSave]   = useState(false);
+  const [scale,      setScale]      = useState(1);
 
   async function handleEstimate() {
     if (!text.trim()) return;
     setLoading(true);
     setResult(null);
+    setScale(1);
     try {
       const r = await aiAPI.estimateMacros(text.trim());
       if (r && !r.error) {
@@ -313,20 +347,22 @@ function AIEstimateTab({ onSelect }) {
     setLoading(false);
   }
 
+  const scaled = result ? scaleMacros(result, scale) : null;
+
   function handleAdd() {
     if (!result) return;
     onSelect({
       name:      mealName || "AI Estimate",
-      calories:  result.calories   || 0,
-      protein_g: result.protein_g  || 0,
-      carbs_g:   result.carbs_g    || 0,
-      fat_g:     result.fat_g      || 0,
+      ...scaled,
+      fiber_g:   result.fiber_g != null ? Math.round(result.fiber_g * scale * 10) / 10 : undefined,
+      _ingredients: Array.isArray(result.ingredients) && result.ingredients.length ? result.ingredients : undefined,
       _saveAsTemplate: saveAsTemplate,
     });
     setText("");
     setResult(null);
     setMealName("");
     setSave(false);
+    setScale(1);
   }
 
   return (
@@ -356,10 +392,10 @@ function AIEstimateTab({ onSelect }) {
             <div style={{ fontSize: 11, fontWeight: 700, color: T.teal, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Estimated Macros</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
               {[
-                ["Kcal",    result.calories,   T.amber],
-                ["Protein", `${result.protein_g}g`, T.teal],
-                ["Carbs",   `${result.carbs_g}g`,   T.amber],
-                ["Fat",     `${result.fat_g}g`,     T.textMuted],
+                ["Kcal",    scaled.calories,   T.amber],
+                ["Protein", `${scaled.protein_g}g`, T.teal],
+                ["Carbs",   `${scaled.carbs_g}g`,   T.amber],
+                ["Fat",     `${scaled.fat_g}g`,     T.textMuted],
               ].map(([label, val, color]) => (
                 <div key={label} style={{ background: T.elevated, borderRadius: 8, padding: "6px 4px", textAlign: "center" }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color, fontFamily: T.fontMono }}>{val}</div>
@@ -368,6 +404,8 @@ function AIEstimateTab({ onSelect }) {
               ))}
             </div>
           </div>
+
+          <ScaleRow scale={scale} onChange={setScale} />
 
           {/* Meal name */}
           <div>
@@ -484,6 +522,7 @@ function PhotoTab({ onSelect }) {
   const [loading,  setLoading]  = useState(false);
   const [result,   setResult]   = useState(null);
   const [picking,  setPicking]  = useState(false);
+  const [scale,    setScale]    = useState(1);
 
   async function choose(source) {
     if (picking) return;
@@ -492,6 +531,7 @@ function PhotoTab({ onSelect }) {
       const img = await pickImage({ source });
       if (!img) return; // user cancelled
       setResult(null);
+      setScale(1);
       setPreview(img.dataUrl);
       setBase64(img.base64);
       setMimeType(mimeFromDataUrl(img.dataUrl));
@@ -508,10 +548,12 @@ function PhotoTab({ onSelect }) {
     try {
       const r = await mealsAPI.photoEstimate({ image_base64: base64, mime_type: mimeType, hint: hint || undefined });
       const est = r?.estimated;
-      if (est && est.name !== "not food") {
+      const isNotFood = (est?.name || "").toLowerCase().trim() === "not food";
+      if (est && !isNotFood) {
         setResult(est);
+        setScale(1);
       } else {
-        showToast(est?.name === "not food" ? "That doesn't look like food 🤔" : "Couldn't analyze the photo", "error");
+        showToast(isNotFood ? "That doesn't look like food 🤔" : "Couldn't analyze the photo", "error");
       }
     } catch (err) {
       // 422 = AI couldn't read the food; anything else is usually connectivity.
@@ -524,8 +566,10 @@ function PhotoTab({ onSelect }) {
   }
 
   function reset() {
-    setPreview(null); setBase64(null); setResult(null); setHint(""); setMimeType("image/jpeg");
+    setPreview(null); setBase64(null); setResult(null); setHint(""); setMimeType("image/jpeg"); setScale(1);
   }
+
+  const scaled = result ? scaleMacros(result, scale) : null;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0, maxWidth: "100%" }}>
@@ -588,7 +632,7 @@ function PhotoTab({ onSelect }) {
                 )}
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
-                {[["Kcal", result.calories, T.amber], ["Protein", `${result.protein_g}g`, T.teal], ["Carbs", `${result.carbs_g}g`, T.amber], ["Fat", `${result.fat_g}g`, T.textMuted]].map(([label, val, color]) => (
+                {[["Kcal", scaled.calories, T.amber], ["Protein", `${scaled.protein_g}g`, T.teal], ["Carbs", `${scaled.carbs_g}g`, T.amber], ["Fat", `${scaled.fat_g}g`, T.textMuted]].map(([label, val, color]) => (
                   <div key={label} style={{ background: T.elevated, borderRadius: 8, padding: "6px 4px", textAlign: "center" }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color, fontFamily: T.fontMono }}>{val}</div>
                     <div style={{ fontSize: 8, color: T.textDim, textTransform: "uppercase", letterSpacing: 0.4, marginTop: 1 }}>{label}</div>
@@ -600,12 +644,21 @@ function PhotoTab({ onSelect }) {
                   {result.ingredients.map((i) => `${i.amount ? i.amount + " " : ""}${i.name}`).join(" · ")}
                 </div>
               )}
+              <ScaleRow scale={scale} onChange={setScale} />
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={() => setResult(null)} style={{ flex: 1, padding: "9px 0", background: T.elevated, border: `1px solid ${T.border}`, borderRadius: 9, color: T.textMuted, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>
                   Retry
                 </button>
                 <button
-                  onClick={() => { onSelect({ name: result.name, calories: result.calories || 0, protein_g: result.protein_g || 0, carbs_g: result.carbs_g || 0, fat_g: result.fat_g || 0 }); reset(); }}
+                  onClick={() => {
+                    onSelect({
+                      name: result.name,
+                      ...scaled,
+                      fiber_g: result.fiber_g != null ? Math.round(result.fiber_g * scale * 10) / 10 : undefined,
+                      _ingredients: Array.isArray(result.ingredients) && result.ingredients.length ? result.ingredients : undefined,
+                    });
+                    reset();
+                  }}
                   style={{ flex: 2, padding: "9px 0", background: T.teal, color: "#0A0A0F", border: "none", borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
                 >
                   Log This Meal
@@ -620,12 +673,13 @@ function PhotoTab({ onSelect }) {
 }
 
 // ── Tab 6: Barcode ────────────────────────────────────────────────────────────
-function BarcodeTab({ onSelect }) {
+function BarcodeTab({ onSelect, onSwitchTab }) {
   const [code,     setCode]     = useState("");
   const [loading,  setLoading]  = useState(false);
   const [selected, setSelected] = useState(null);
   const [scanning, setScanning] = useState(false); // web live scan active
   const [busy,     setBusy]     = useState(false);  // native snapshot decode
+  const [notFound, setNotFound] = useState(false);  // last lookup found nothing
   const videoRef = useRef(null);
   const stopRef  = useRef(null);
   const native   = isNativePlatform();
@@ -634,13 +688,21 @@ function BarcodeTab({ onSelect }) {
   const canLiveScan = !native && typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
 
   async function lookup(barcode) {
-    if (!barcode) return;
+    // Scanners can hand back values with separators/checksums the API rejects
+    const digits = String(barcode || "").replace(/\D/g, "");
+    if (!digits) return;
+    if (digits.length < 6 || digits.length > 14) {
+      showToast("That doesn't look like a product barcode", "error");
+      return;
+    }
     setLoading(true);
+    setNotFound(false);
     try {
-      const r = await foodAPI.barcode(barcode);
+      const r = await foodAPI.barcode(digits);
       if (r?.item) {
         setSelected(r.item);
       } else {
+        setNotFound(true);
         showToast(r?.error === "not_found" ? "Product not in the database" : "No nutrition data for this barcode", "error");
       }
     } catch (err) {
@@ -686,11 +748,16 @@ function BarcodeTab({ onSelect }) {
       // The video element mounts in the same render that flips `scanning`.
       await new Promise((r) => requestAnimationFrame(r));
       if (cancelled || !videoRef.current) return;
-      stopRef.current = await startLiveBarcodeScan(
+      const stop = await startLiveBarcodeScan(
         videoRef.current,
         (text) => { setScanning(false); setCode(text); lookup(text); },
         () => { showToast("Camera unavailable — type the barcode instead", "error"); setScanning(false); },
       );
+      // If the user closed the scanner while the camera was still starting
+      // (permission prompt, slow getUserMedia), cleanup already ran with a null
+      // stopRef — stop immediately or the camera stays on with no UI.
+      if (cancelled) { stop(); return; }
+      stopRef.current = stop;
     })();
     return () => {
       cancelled = true;
@@ -745,6 +812,24 @@ function BarcodeTab({ onSelect }) {
           {loading ? "…" : "Look up"}
         </button>
       </div>
+      {notFound && (
+        <div style={{ background: T.elevated, border: `1px solid ${T.amber}44`, borderRadius: 12, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 12, color: T.textMuted, lineHeight: 1.5 }}>
+            This product isn't in the database yet — you can still log it from a photo or a short description.
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => onSwitchTab?.("photo")}
+              style={{ flex: 1, padding: "9px 0", background: T.teal, color: "#0A0A0F", border: "none", borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+              Estimate from Photo
+            </button>
+            <button onClick={() => onSwitchTab?.("ai")}
+              style={{ flex: 1, padding: "9px 0", background: T.surface, color: T.text, border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+              Describe It
+            </button>
+          </div>
+        </div>
+      )}
+
       <div style={{ fontSize: 11, color: T.textDim, textAlign: "center" }}>
         Powered by Open Food Facts — packaged foods worldwide
       </div>
@@ -791,7 +876,7 @@ export default function FoodSearch({ onSelect }) {
       {/* Tab content */}
       {activeTab === "database"  && <DatabaseTab  onSelect={onSelect} />}
       {activeTab === "photo"     && <PhotoTab     onSelect={onSelect} />}
-      {activeTab === "barcode"   && <BarcodeTab   onSelect={onSelect} />}
+      {activeTab === "barcode"   && <BarcodeTab   onSelect={onSelect} onSwitchTab={setActiveTab} />}
       {activeTab === "recent"    && <RecentTab    onSelect={onSelect} />}
       {activeTab === "templates" && <TemplatesTab onSelect={onSelect} />}
       {activeTab === "ai"        && <AIEstimateTab onSelect={onSelect} />}

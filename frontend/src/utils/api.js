@@ -347,7 +347,10 @@ export const aiAPI = {
       body: JSON.stringify({ current_meal_id: mealId, reason, preferences }),
     }),
   estimateMacros: (description) =>
-    request(`/ai/estimate-macros?description=${encodeURIComponent(description)}`, { method: "POST" }),
+    request("/ai/estimate-macros", {
+      method: "POST",
+      body: JSON.stringify({ description }),
+    }),
   suggestWorkout: (templates, clientDate) =>
     request("/ai/suggest-workout", {
       method: "POST",

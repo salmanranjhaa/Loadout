@@ -453,10 +453,20 @@ export default function MealsPage({ profile, onProfile }) {
         protein_g: food.protein_g || 0,
         carbs_g: food.carbs_g ?? null,
         fat_g: food.fat_g ?? null,
+        custom_ingredients: food._ingredients || undefined,
         date: selectedDate,
       });
       if (food._saveAsTemplate) {
-        mealsAPI.saveTemplate({ name: food.name, meal_type: mealType, calories: food.calories || 0, protein_g: food.protein_g || 0, carbs_g: food.carbs_g, fat_g: food.fat_g }).catch(() => {});
+        mealsAPI.saveTemplate({
+          name: food.name,
+          meal_type: mealType,
+          calories: food.calories || 0,
+          protein_g: food.protein_g || 0,
+          carbs_g: food.carbs_g,
+          fat_g: food.fat_g,
+          fiber_g: food.fiber_g,
+          ingredients: food._ingredients || [],
+        }).catch(() => {});
       }
       setAddModal(null);
       showToast(res?.queued ? "Saved offline — will sync later" : `${food.name} logged`, "success");
