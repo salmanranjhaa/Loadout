@@ -59,25 +59,34 @@ www.polarisedu.info {
     redir https://polarisedu.info{uri} 301
 }
 
-# ERP-RAG — no owned domain, so use sslip.io wildcard DNS (hostname -> 34.17.37.87)
+# ERP-RAG — no owned domain, so use sslip.io wildcard DNS (hostname -> 34.17.100.46)
 # which lets Caddy obtain real Let's Encrypt certs without buying DNS.
-erp-rag.34.17.37.87.sslip.io {
+erp-rag.34.17.100.46.sslip.io {
     reverse_proxy erp-rag-app:8000 {
         flush_interval -1
     }
 }
 
-strata.34.17.37.87.sslip.io {
+strata.34.17.100.46.sslip.io {
     reverse_proxy erp-openclaw:8001 {
         flush_interval -1
     }
 }
 
-# HBU Teaching Assistant — no owned domain, so use the sslip.io wildcard (-> 34.17.37.87).
+# HBU Teaching Assistant — no owned domain, so use the sslip.io wildcard (-> 34.17.100.46).
 # hbu-web is the project's own Caddy that serves the SPA and proxies /api to hbu-backend.
 # flush_interval -1 keeps the chat SSE stream flowing token by token.
-hbu.34.17.37.87.sslip.io {
+hbu.34.17.100.46.sslip.io {
     reverse_proxy hbu-web:80 {
+        flush_interval -1
+    }
+}
+
+# PitWall F1 Strategy Simulator — sslip.io wildcard (-> 34.17.100.46).
+# pitwall-web is the project's own Caddy serving the SPA and proxying /api
+# to pitwall-backend. flush_interval -1 keeps the race SSE stream live.
+pitwall.34.17.100.46.sslip.io {
+    reverse_proxy pitwall-web:80 {
         flush_interval -1
     }
 }
