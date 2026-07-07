@@ -59,6 +59,32 @@ www.polarisedu.info {
     redir https://polarisedu.info{uri} 301
 }
 
+# Project subdomains on the owned salmanranjha.me domain. Each needs a GoDaddy
+# A record (host = subdomain, value = 34.17.100.46); Caddy retries the Let's
+# Encrypt cert automatically until the DNS record exists, so these blocks are
+# safe to keep before the records are added.
+pitwall.salmanranjha.me {
+    reverse_proxy pitwall-web:80 {
+        flush_interval -1
+    }
+}
+
+weave.salmanranjha.me {
+    reverse_proxy erp-rag-app:8000 {
+        flush_interval -1
+    }
+}
+
+strata.salmanranjha.me {
+    reverse_proxy erp-openclaw:8001 {
+        flush_interval -1
+    }
+}
+
+gre.salmanranjha.me {
+    reverse_proxy gre-v2-frontend:80
+}
+
 # ERP-RAG — no owned domain, so use sslip.io wildcard DNS (hostname -> 34.17.100.46)
 # which lets Caddy obtain real Let's Encrypt certs without buying DNS.
 erp-rag.34.17.100.46.sslip.io {
